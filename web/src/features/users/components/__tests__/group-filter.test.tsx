@@ -75,6 +75,8 @@ async function renderUsers(initialEntry = '/users/') {
             },
           ],
           total: 1,
+          registered_count: 3,
+          registered_limit: 5,
         },
       },
     }
@@ -151,4 +153,9 @@ it('restores the user group filter from the page URL on load', async () => {
   expect(get).toHaveBeenCalledWith(premiumSearchUrl)
   expect(get).not.toHaveBeenCalledWith('/api/user/', expect.anything())
   expect(getGroupFilterTrigger()).toHaveTextContent('premium')
+})
+
+it('shows the site registration capacity even when the user list is filtered', async () => {
+  await renderUsers('/users/?group=%5B%22premium%22%5D')
+  expect(screen.getByText('Registered accounts · 3 / 5')).toBeVisible()
 })

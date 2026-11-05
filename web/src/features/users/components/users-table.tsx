@@ -30,6 +30,8 @@ import {
 } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import {
   createServerError,
   requireServerSuccess,
@@ -63,7 +65,8 @@ function isDisabledUserRow(user: User) {
 }
 
 export function UsersTable() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const columns = useUsersColumns()
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
@@ -175,12 +178,25 @@ export function UsersTable() {
       return {
         items: result.data?.items || [],
         total: result.data?.total || 0,
+        registeredCount: result.data?.registered_count,
+        registeredLimit: result.data?.registered_limit ?? 0,
       }
     },
     placeholderData: (previousData) => previousData,
   })
 
   const users = data?.items || []
+  let registrationSummary: string | undefined
+  if (data?.registeredCount !== undefined) {
+    const count = formatNumber(data.registeredCount, locale)
+    registrationSummary =
+      data.registeredLimit > 0
+        ? t('Registered accounts · {{count}} / {{limit}}', {
+            count,
+            limit: formatNumber(data.registeredLimit, locale),
+          })
+        : t('Registered accounts · {{count}}', { count })
+  }
 
   const { table } = useDataTable({
     data: users,
@@ -227,6 +243,11 @@ export function UsersTable() {
       skeletonKeyPrefix='users-skeleton'
       applyHeaderSize
       toolbarProps={{
+        leftActions: registrationSummary ? (
+          <span className='text-muted-foreground text-sm'>
+            {registrationSummary}
+          </span>
+        ) : undefined,
         searchPlaceholder: t('Filter by username, name or email...'),
         searchDebounceMs: 500,
         filters: [

@@ -347,8 +347,7 @@ func GetAllUsers(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
 
-	common.ApiSuccess(c, pageInfo)
-	return
+	writeUsersPage(c, pageInfo)
 }
 
 func SearchUsers(c *gin.Context) {
@@ -376,8 +375,24 @@ func SearchUsers(c *gin.Context) {
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
-	common.ApiSuccess(c, pageInfo)
-	return
+	writeUsersPage(c, pageInfo)
+}
+
+func writeUsersPage(c *gin.Context, page *common.PageInfo) {
+	count, err := model.CountRegisteredUsers()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, struct {
+		*common.PageInfo
+		RegisteredCount int64 `json:"registered_count"`
+		RegisteredLimit int64 `json:"registered_limit"`
+	}{
+		PageInfo:        page,
+		RegisteredCount: count,
+		RegisteredLimit: common.MaxRegisteredUsers,
+	})
 }
 
 func canManageTargetRole(myRole int, targetRole int) bool {

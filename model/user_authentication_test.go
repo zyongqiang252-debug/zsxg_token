@@ -19,6 +19,28 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestUserRegistrationLimitCountsUndeletedOrdinaryUsers(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&Option{}))
+	t.Cleanup(func() { DB.Where("key = ?", "RegisteredUserCapacityLock").Delete(&Option{}) })
+	previousLimit := common.MaxRegisteredUsers
+	common.MaxRegisteredUsers = 1
+	t.Cleanup(func() { common.MaxRegisteredUsers = previousLimit })
+
+	admin := User{Username: "capacity-admin", Role: common.RoleAdminUser}
+	require.NoError(t, admin.Insert(0))
+	ordinary := User{Username: "capacity-disabled", Role: common.RoleCommonUser, Status: common.UserStatusDisabled}
+	require.NoError(t, ordinary.Insert(0))
+	count, err := CountRegisteredUsers()
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count)
+
+	next := User{Username: "capacity-next", Role: common.RoleCommonUser}
+	assert.ErrorIs(t, next.Insert(0), ErrUserRegistrationLimit)
+	require.NoError(t, DB.Delete(&ordinary).Error)
+	require.NoError(t, next.Insert(0))
+}
+
 func TestHardDeleteUserFailsClosedWhenAuthFenceCannotPublish(t *testing.T) {
 	truncateTables(t)
 

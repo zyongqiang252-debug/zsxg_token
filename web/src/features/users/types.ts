@@ -101,6 +101,8 @@ export interface GetUsersResponse {
   data?: {
     items: User[]
     total: number
+    registered_count?: number
+    registered_limit?: number
     page: number
     page_size: number
   }

@@ -19,6 +19,8 @@ import (
 
 const UserNameMaxLength = 20
 
+var ErrUserRegistrationLimit = common.NewMessage("The user registration limit has been reached")
+
 var userSortColumns = map[string]string{
 	"id":            "id",
 	"username":      "username",
@@ -674,22 +676,7 @@ func ensureEmailAvailableWithTx(tx *gorm.DB, email string, excludeUserID int) er
 
 func (user *User) Insert(inviterId int) error {
 	if err := DB.Transaction(func(tx *gorm.DB) error {
-		return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
-			if err := user.prepareForInsert(tx); err != nil {
-				return err
-			}
-			user.Quota = common.QuotaForNewUser
-			user.AffCode = common.GetRandomString(4)
-
-			// 初始化用户设置，包括默认的边栏配置
-			if user.Setting == "" {
-				defaultSetting := dto.UserSetting{}
-				// 这里暂时不设置SidebarModules，因为需要在用户创建后根据角色设置
-				user.SetSetting(defaultSetting)
-			}
-
-			return tx.Create(user).Error
-		})
+		return user.InsertWithTx(tx, inviterId)
 	}); err != nil {
 		return err
 	}
@@ -738,6 +725,11 @@ func (user *User) FinishInsert(inviterId int) {
 // This is used for OAuth registration where user creation and binding need to be atomic.
 // Post-creation tasks (sidebar config, logs, inviter rewards) are handled after the transaction commits.
 func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
+	if common.MaxRegisteredUsers > 0 && (user.Role == 0 || user.Role == common.RoleCommonUser) {
+		if err := checkRegisteredUserCapacity(tx, common.MaxRegisteredUsers); err != nil {
+			return err
+		}
+	}
 	return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
 		if err := user.prepareForInsert(tx); err != nil {
 			return err
@@ -753,6 +745,36 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 
 		return tx.Create(user).Error
 	})
+}
+
+func checkRegisteredUserCapacity(tx *gorm.DB, limit int64) error {
+	// Serialize account creation across instances. The insert also takes the
+	// write lock before counting on SQLite, which has no SELECT FOR UPDATE.
+	guard := Option{Key: "RegisteredUserCapacityLock"}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&guard).Error; err != nil {
+		return err
+	}
+	if err := lockForUpdate(tx).Take(&guard, &Option{Key: guard.Key}).Error; err != nil {
+		return err
+	}
+	count, err := countRegisteredUsers(tx)
+	if err != nil {
+		return err
+	}
+	if count >= limit {
+		return ErrUserRegistrationLimit
+	}
+	return nil
+}
+
+func CountRegisteredUsers() (int64, error) {
+	return countRegisteredUsers(DB)
+}
+
+func countRegisteredUsers(db *gorm.DB) (int64, error) {
+	var count int64
+	err := db.Model(&User{}).Where("role = ?", common.RoleCommonUser).Count(&count).Error
+	return count, err
 }
 
 // FinalizeOAuthUserCreation performs post-transaction tasks for OAuth user creation.

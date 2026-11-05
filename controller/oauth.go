@@ -314,6 +314,10 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 	}
 	user, migration, err := findOrCreateOAuthUser(c, provider, oauthUser, token, payload.AffiliateCode)
 	if err != nil {
+		if errors.Is(err, model.ErrUserRegistrationLimit) {
+			common.ApiError(c, err)
+			return
+		}
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")
 			return

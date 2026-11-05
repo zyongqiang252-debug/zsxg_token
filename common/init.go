@@ -71,6 +71,13 @@ func InitEnv() {
 	if os.Getenv("SQLITE_PATH") != "" {
 		SQLitePath = os.Getenv("SQLITE_PATH")
 	}
+	if raw := os.Getenv("MAX_REGISTERED_USERS"); raw != "" {
+		limit, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || limit < 0 {
+			log.Fatal("MAX_REGISTERED_USERS must be an integer between 0 and 2147483647")
+		}
+		MaxRegisteredUsers = limit
+	}
 	if *LogDir != "" {
 		var err error
 		*LogDir, err = filepath.Abs(*LogDir)
