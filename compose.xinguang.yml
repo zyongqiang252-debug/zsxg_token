@@ -1,0 +1,30 @@
+services:
+  new-api:
+    image: docker.io/xinguang/new-api:review
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    volumes:
+      - xinguang_data:/data
+      - xinguang_logs:/app/logs
+    command: ["--log-dir", "/app/logs"]
+    environment:
+      TZ: Asia/Shanghai
+      DEFAULT_LANGUAGE: zh-CN
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in deploy/runtime.env}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_COOKIE_TRUSTED_URL: ${SESSION_COOKIE_TRUSTED_URL:-}
+      MAX_REGISTERED_USERS: ${MAX_REGISTERED_USERS:-100}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-none}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/status | grep -q '\"success\":true'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+volumes:
+  xinguang_data:
+  xinguang_logs:

@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'xgsz-token'
-export const DEFAULT_LOGO = '/xgsz-token-logo.svg'
+export const DEFAULT_SYSTEM_NAME = '芯光智数'
+export const DEFAULT_LOGO = '/xinguang-logo.svg'
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

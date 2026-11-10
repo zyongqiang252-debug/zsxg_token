@@ -1,0 +1,22 @@
+{
+  "gateway_url": "http://127.0.0.1:3000",
+  "channel": {
+    "name": "芯光智数-Token-API",
+    "base_url": "https://your-token-api.example.com",
+    "api_key_env": "UPSTREAM_API_KEY",
+    "models": ["xinguang-chat"],
+    "model_mapping": {"xinguang-chat": "your-upstream-model"},
+    "group": "default"
+  },
+  "temporary_prices_usd_per_million": {"input": 1, "output": 2},
+  "payment": {
+    "enabled": false,
+    "gateway_url": "https://your-epay.example.com",
+    "merchant_id": "",
+    "key_env": "EPAY_KEY",
+    "public_url": "https://your-site.example.com",
+    "cny_per_usd": 7,
+    "min_topup": 1,
+    "methods": [{"name": "支付宝", "type": "alipay"}, {"name": "微信", "type": "wxpay"}]
+  }
+}

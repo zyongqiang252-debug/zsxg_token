@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -203,7 +204,7 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    net.JoinHostPort(os.Getenv("LISTEN_ADDRESS"), port),
 		Handler: server,
 	}
 

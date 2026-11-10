@@ -12,9 +12,9 @@ import (
 
 var StartTime = time.Now().Unix() // unit: second
 var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
-var SystemName = "xgsz-token"
+var SystemName = "芯光智数"
 var Footer = ""
-var Logo = ""
+var Logo = "/xinguang-logo.svg"
 var TopUpLink = ""
 
 // var ChatLink = ""

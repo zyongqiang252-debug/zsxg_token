@@ -10,3 +10,14 @@ docs
 /web/node_modules
 /web/dist
 !THIRD-PARTY-LICENSES.md
+!LICENSE
+!NOTICE
+.env
+.env.*
+!*.example
+/data
+/logs
+/bin
+/deploy/*.local.json
+/deploy/runtime.env
+**/__pycache__

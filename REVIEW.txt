@@ -1,0 +1,109 @@
+芯光智数审查说明（2026-11-10）
+
+范围
+按用户确认，本版交付可配置对接和本地模拟联调。
+基于现有 New API 实现，不更改原项目署名和许可证。
+token.wps 中的命令和部署笔记作为参考，没有执行删除原容器等命令。
+
+图标
+web/public/xinguang-logo.svg 是根据参考图绘制的矢量小图标，用于页头、侧栏和浏览器标签页。
+web/public/xinguang-brand.jpg 原样保留用户提供的完整品牌图。
+前后端默认站点名均为“芯光智数”。已有数据库设置优先；配置工具会更新站点名称和图标。
+
+模型 / Token API
+复用现有 OpenAI 兼容渠道、模型别名映射、API Key 管理和计费链路。
+客户端使用本应用生成的 sk- API Key，请求本应用的 /v1/chat/completions；上游密钥仅保存在服务端渠道配置中。
+Base URL 不含末尾 /v1。对外模型名在 models，真实上游模型名在 model_mapping。
+临时输入价格 1 USD / 百万 tokens，输出 2 USD / 百万 tokens，表达式档位名 temporary。
+这些是联调占位价格，不是供应商报价。已有管理员显式定价会保留；需要改价请在模型定价界面操作。
+令牌额度是使用上限，不是独立钱包。调用同时检查账户余额和令牌额度，消费日志保存实际 token 用量和扣费。
+充值增加账户余额，不会自动提高有限额 API Key 的上限；管理员/用户需要在 API 密钥中调整限额。
+
+配置真实服务（当前未启用）
+1. 完成管理界面的首次初始化。创建 root 管理员个人访问令牌，授权 option:read、option:write、channel:read、channel:sensitive_write。
+   具体 scope 名以管理界面为准。访问令牌与模型调用 sk- Key 是两种凭据。
+2. 复制 deploy/integration.example.json 为 deploy/integration.local.json，填写上游 URL、模型映射。
+3. 用环境变量提供 GATEWAY_ACCESS_TOKEN、UPSTREAM_API_KEY；启用易支付时还需 EPAY_KEY。
+4. python deploy/configure.py deploy/integration.local.json
+   默认只校验配置，不发请求、不写数据库。
+5. python deploy/configure.py deploy/integration.local.json --apply
+   重复执行不重复创建同名渠道；遇到同名但配置不同的渠道时停止，请先到后台审查。
+   多个管理 API 调用不是一个数据库事务；中途失败时修正问题后重试，已成功的步骤会保留。
+   现有渠道密钥不会被工具轮换；请在渠道管理中修改。
+
+充值
+复用已有易支付 Epay 接口，支持支付宝/微信等商户已开通的方式。
+配置 payment.enabled=true、gateway_url、merchant_id、public_url、key_env 和汇率后执行配置工具。
+管理员需要在现有支付设置界面确认原有支付声明；工具保留这一要求。
+异步回调：<public_url>/api/user/epay/notify
+当前联调汇率为 7 CNY/USD；1 USD 余额对应 500000 内部额度。
+上线需填真实参数，确认公网 HTTPS 回调可达，并完成真实支付沙箱/小额验收。
+本地模拟不会向真实商户发起交易，也不会调用真实模型。
+
+本地审查
+从仓库根目录执行 powershell -ExecutionPolicy Bypass -File deploy/start-review.ps1
+脚本使用相邻 zsxg_token-env/bin/zsxg-token-review.exe，创建独立临时 SQLite、模拟上游和审查账户。
+启动后在 deploy/review-access.local.json 查看本次 URL、用户名和随机密码。
+审查服务仅用于本地，停止后临时数据清除；原开发数据库不受影响。
+该演示通过管理 API 预置了模型、令牌、一次模拟充值和消费日志。
+为验证管理员改价保护，演示最后保留 administrator 档位输入 3、输出 4 USD/百万 tokens。
+启动脚本运行在当前终端时可 Ctrl+C 停止；后台审查进程可通过对应本次启动的进程 ID 停止。
+本地凭据文件已加入 Git 和 Docker 忽略规则，不得提交或对外分享。
+
+Docker / Podman
+Dockerfile 从源码构建前端并嵌入 Go 程序，运行镜像包含整个应用和许可证。
+compose.xinguang.yml 使用本地源码构建，镜像名 xinguang/new-api:review，不拉取旧的上游应用镜像。
+单实例使用持久化 SQLite 命名卷；本配置不是多实例方案。
+需要多实例时再配置共享 PostgreSQL/MySQL、Redis、相同 SESSION_SECRET 和一致的反向代理设置。
+
+部署步骤（仓库根目录）
+cp deploy/runtime.env.example deploy/runtime.env
+在 runtime.env 中填写随机 SESSION_SECRET（例如 openssl rand -hex 32）。
+docker compose --env-file deploy/runtime.env -f compose.xinguang.yml up -d --build
+默认只监听 127.0.0.1:3000。通过 HTTPS 反代对外服务时设置 Secure Cookie 和精确 trusted origin。
+已有 Docker 卷不会因重建镜像丢失。请不要执行 down -v，除非明确要删除数据。
+
+打包和离线导入
+bash deploy/build-image.sh
+或 CONTAINER_ENGINE=podman bash deploy/build-image.sh
+成功后得到相邻 release/xinguang-new-api-review.tar。
+服务器执行 docker load -i xinguang-new-api-review.tar，再用 compose up -d --no-build 启动。
+本机已生成并启动验证 Linux amd64 镜像：docker.io/xinguang/new-api:review。
+镜像文件在相邻 release/xinguang-new-api-review.tar（约 264 MB）。
+Docker Hub 连接超时，因此此次使用本地交叉编译（CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build）
+嵌入已经构建的前端，再通过 deploy/Dockerfile.runtime 打包。没有把本地数据库或密钥加入镜像。
+运行时基础镜像来自 token.wps 中的华为镜像源：
+swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/debian:bookworm-slim
+本次基础镜像配置 ID 为 086cc0a12e56e099852c389c79c4897f6ff2a7e7f1bd1ca5b7b2feb754135555。
+最终镜像 ID 为 f8c2180bd50df164d2bc7ffa35aa1e8b6f61586c0730a01561d37435409f2578。
+容器内 /api/status 返回 success=true、system_name=芯光智数，/xinguang-logo.svg 返回正常。
+临时验收容器已移除，本地模拟审查页独立运行。
+可用预编译二进制复现打包，设置 PREBUILT_BINARY 后执行 deploy/build-image.sh；
+需要镜像源时设置 BASE_IMAGE 和 DEBIAN_MIRROR。本次 DEBIAN_MIRROR=http://mirrors.huaweicloud.com，
+apt 使用发行版签名校验下载的软件包，未关闭签名验证。
+
+验证命令
+前端：bun check -b、bun run build、bun run test src/lib/__tests__/status-query.test.tsx
+Lint：bun x oxlint -c .oxlintrc.json src/lib/constants.ts
+格式：bun x oxfmt --check src/lib/constants.ts index.html
+后端：CGO_ENABLED=0 go build -p 4 -o ../zsxg_token-env/bin/zsxg-token-review.exe .
+联调：设置 REVIEW_GATEWAY_BINARY 后 python -m unittest discover -s deploy -p test_integration.py -v
+联调用例覆盖：模型映射、精确扣费 70 quota、账户/令牌同步扣减、配置重入、管理员定价保留、
+未授权请求拒绝、充值订单生成、无效回调签名拒绝、成功回调入账和重复回调幂等。
+未进行真实模型/真实支付验收；未声明整个上游项目已通过完整安全合规审计。
+新增工具拒绝跨域重定向、远程明文 HTTP、URL 内嵌凭据；不打印可用密钥或服务端可能回显的密钥。
+参考 OWASP Authentication Cheat Sheet、Session Management Cheat Sheet；既有认证和支付验签逻辑未重写。
+
+第二轮验证（2026-11-10）
+补充配置输入结构校验，拒绝字符串 models、错误的模型映射、非布尔支付开关和超大临时价格。
+审查启动脚本在 Python 验证失败时明确报错。
+4 项 Python 测试全部通过，包含真实网关进程的 JSON/SSE 调用、精确计费、上游 503 失败退款、
+管理员定价保留、错误签名和重复充值回调。前端类型检查、11 项相关测试、lint/格式检查通过。
+go test ./common ./model ./controller -run 'Test.*(Epay|TopUp|Wallet|Quota)' -count=1：
+common/model 通过；controller 中 TestManageUserQuotaMiddlewareKeepsOneOperationPerRequest 失败。
+已在原提交 cad1b9ad8 的独立 worktree 单独运行该用例，复现同样的 ACCESS_TOKEN_LEGACY_RETIRED/401。
+这是已有测试仍使用旧令牌的基线问题，本轮没有修改该测试或放宽认证。
+另外执行 controller 的 Test.*(Epay|TopUp|Wallet) 用例全部通过。
+SQLite 版本 3.50.4。本轮没有修改数据库结构、ORM、迁移或生产计费计算逻辑。
+Docker 归档重新导入成功，容器状态接口和命名卷内数据库在重启后仍正常。
+本轮仅更新部署工具和验证用例，应用镜像二进制未发生变化，无需重新生成镜像包。
