@@ -23,7 +23,7 @@ import { ResearchAssistant } from '@/features/research'
 
 export const Route = createFileRoute('/_authenticated/research/')({
   component: () => (
-    <Main>
+    <Main className='overflow-y-auto'>
       <ResearchAssistant />
     </Main>
   ),

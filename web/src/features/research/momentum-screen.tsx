@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation } from '@tanstack/react-query'
+import { ListFilter } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -112,16 +113,21 @@ export function MomentumScreen(props: {
     onError: () => setError(t('Unable to screen the data; check the input')),
   })
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('Local momentum screening')}</CardTitle>
+    <Card className='gap-0 rounded-2xl border-0 py-0 shadow-sm'>
+      <CardHeader className='border-b px-6 py-5 sm:px-7'>
+        <CardTitle className='flex items-center gap-3 text-lg font-semibold'>
+          <span className='flex size-10 items-center justify-center rounded-xl bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300'>
+            <ListFilter className='size-5' />
+          </span>
+          {t('Local momentum screening')}
+        </CardTitle>
         <CardDescription>
           {t(
             'Import symbol, date and close price in fen; each symbol must be ordered by date.'
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent className='space-y-4'>
+      <CardContent className='space-y-5 p-6 sm:p-7'>
         <p className='text-muted-foreground text-sm'>
           {t(
             'Research statistics only; missing or stale series are excluded, and results are not investment recommendations.'
@@ -144,6 +150,7 @@ export function MomentumScreen(props: {
           <Label htmlFor='screen-data'>{t('Screening price data')}</Label>
           <Textarea
             id='screen-data'
+            className='min-h-28 font-mono text-sm'
             value={csv}
             disabled={reading || screen.isPending}
             onChange={(event) => {
@@ -198,7 +205,10 @@ export function MomentumScreen(props: {
           {screen.isPending ? t('Processing...') : t('Run screening')}
         </Button>
         {result && (
-          <div aria-live='polite' className='space-y-2 text-sm'>
+          <div
+            aria-live='polite'
+            className='bg-muted/40 space-y-3 rounded-xl border p-4 text-sm'
+          >
             <p>{t('Momentum (basis points)')}</p>
             <ul>
               {result.items.map((item) => (

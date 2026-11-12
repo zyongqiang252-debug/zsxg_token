@@ -17,6 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowDownRight,
+  BookOpenText,
+  ChartNoAxesCombined,
+  FileText,
+  Send,
+  Sparkles,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -215,165 +223,245 @@ export function ResearchAssistant() {
   }
 
   return (
-    <div className='mx-auto w-full max-w-3xl space-y-6 p-6'>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('Document research assistant')}</CardTitle>
+    <div className='mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-10 lg:py-10'>
+      <header className='relative overflow-hidden rounded-3xl border border-sky-200/60 bg-gradient-to-br from-sky-50 via-white to-cyan-50/80 px-6 py-7 sm:px-9 sm:py-9 dark:border-sky-900/60 dark:from-slate-900 dark:via-slate-950 dark:to-sky-950/60'>
+        <div
+          aria-hidden='true'
+          className='pointer-events-none absolute -top-24 -right-12 size-64 rounded-full bg-sky-300/20 blur-3xl'
+        />
+        <div className='relative max-w-3xl space-y-3'>
+          <div className='flex items-center gap-2 text-xs font-semibold tracking-[0.16em] text-sky-700 uppercase dark:text-sky-300'>
+            <Sparkles className='size-4' /> {t('Research workspace')}
+          </div>
+          <h1 className='text-2xl font-semibold tracking-tight sm:text-3xl'>
+            {t('Research workspace title')}
+          </h1>
+          <p className='text-muted-foreground max-w-2xl text-sm leading-6'>
+            {t('Research workspace description')}
+          </p>
+        </div>
+        <nav
+          aria-label={t('Research tools')}
+          className='relative mt-6 flex flex-wrap gap-2'
+        >
+          <a
+            href='#research-assistant'
+            className='inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3.5 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-400 dark:border-sky-800 dark:bg-slate-900 dark:text-sky-100'
+          >
+            <BookOpenText className='size-4' />
+            {t('Document research assistant')}
+          </a>
+          <a
+            href='#research-backtest'
+            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+          >
+            <ChartNoAxesCombined className='size-4' />
+            {t('A-share backtest preview')}
+          </a>
+          <a
+            href='#research-screen'
+            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+          >
+            <ArrowDownRight className='size-4' />
+            {t('Local momentum screening')}
+          </a>
+        </nav>
+      </header>
+      <Card
+        id='research-assistant'
+        className='scroll-mt-4 gap-0 rounded-2xl border-0 py-0 shadow-sm'
+      >
+        <CardHeader className='border-b px-6 py-5 sm:px-7'>
+          <CardTitle className='flex items-center gap-3 text-lg font-semibold'>
+            <span className='flex size-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'>
+              <FileText className='size-5' />
+            </span>
+            {t('Document research assistant')}
+          </CardTitle>
           <CardDescription>
             {t(
               'Upload a text, Markdown, DOCX or text-based PDF file and ask a question. Relevant excerpts are sent to the selected model and billed by token usage.'
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent className='space-y-4'>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Documents are saved to your account. Relevant excerpts are sent to the model provider; review answers and citations before relying on them.'
-            )}
-          </p>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'Up to 20 documents; each text may contain at most 100,000 characters. The combined request must be under 3 MB.'
-            )}
-          </p>
-          <p className='text-muted-foreground text-sm'>
-            {t('Scanned PDF files require OCR and are not supported yet.')}
-          </p>
-          <div className='space-y-2'>
-            <Label htmlFor='research-token'>{t('API token')}</Label>
-            <Input
-              id='research-token'
-              type='password'
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoComplete='off'
-            />
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='research-model'>{t('Model')}</Label>
-            <Input
-              id='research-model'
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            />
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='research-file'>{t('Document')}</Label>
-            <Input
-              id='research-file'
-              type='file'
-              accept='.txt,.md,.docx,.pdf'
-              disabled={
-                pending || documents.isLoading || documents.isError || !userId
-              }
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file && userId) extract.mutate({ file, ownerId: userId })
-              }}
-            />
-            {documents.isError && (
-              <p role='alert'>{t('Unable to load documents')}</p>
-            )}
-            {(documents.data ?? []).map((item) => (
-              <div key={item.id} className='flex items-center gap-2'>
-                <Button
-                  type='button'
-                  variant={
-                    selectedIds.includes(item.id) ? 'default' : 'outline'
-                  }
-                  aria-pressed={selectedIds.includes(item.id)}
-                  onClick={() =>
-                    setSelectedIds((old) =>
-                      old.includes(item.id)
-                        ? old.filter((id) => id !== item.id)
-                        : [...old, item.id]
-                    )
-                  }
+        <CardContent className='grid gap-0 px-0 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]'>
+          <div className='space-y-4 border-b p-6 sm:p-7 lg:border-r lg:border-b-0'>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Documents are saved to your account. Relevant excerpts are sent to the model provider; review answers and citations before relying on them.'
+              )}
+            </p>
+            <details className='text-muted-foreground text-xs leading-5'>
+              <summary className='cursor-pointer font-medium'>
+                {t('Document requirements')}
+              </summary>
+              <p className='mt-2'>
+                {t(
+                  'Up to 20 documents; each text may contain at most 100,000 characters. The combined request must be under 3 MB.'
+                )}
+              </p>
+              <p className='text-muted-foreground text-sm'>
+                {t('Scanned PDF files require OCR and are not supported yet.')}
+              </p>
+            </details>
+            <div className='space-y-2'>
+              <Label htmlFor='research-token'>{t('API token')}</Label>
+              <Input
+                id='research-token'
+                type='password'
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                autoComplete='off'
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='research-model'>{t('Model')}</Label>
+              <Input
+                id='research-model'
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='research-file'>{t('Document')}</Label>
+              <Input
+                id='research-file'
+                type='file'
+                accept='.txt,.md,.docx,.pdf'
+                disabled={
+                  pending || documents.isLoading || documents.isError || !userId
+                }
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file && userId) extract.mutate({ file, ownerId: userId })
+                }}
+              />
+              {documents.isError && (
+                <p role='alert'>{t('Unable to load documents')}</p>
+              )}
+              {(documents.data ?? []).map((item) => (
+                <div
+                  key={item.id}
+                  className='bg-muted/30 flex items-center gap-2 rounded-xl border p-2'
                 >
-                  {item.name}
-                </Button>
+                  <Button
+                    type='button'
+                    className='min-w-0 flex-1 justify-start'
+                    variant={
+                      selectedIds.includes(item.id) ? 'default' : 'outline'
+                    }
+                    aria-pressed={selectedIds.includes(item.id)}
+                    onClick={() =>
+                      setSelectedIds((old) =>
+                        old.includes(item.id)
+                          ? old.filter((id) => id !== item.id)
+                          : [...old, item.id]
+                      )
+                    }
+                  >
+                    <span className='truncate' title={item.name}>
+                      {item.name}
+                    </span>
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    aria-label={`${t('Delete document')}: ${item.name}`}
+                    onClick={() => setPendingDelete(item)}
+                  >
+                    {t('Delete')}
+                  </Button>
+                </div>
+              ))}
+              <p className='text-sm'>
+                {t('Selected documents')}:{' '}
+                {formatNumber(selectedDocuments.length, locale)}
+              </p>
+            </div>
+          </div>
+          <div className='flex flex-col gap-4 bg-slate-50/50 p-6 sm:p-7 dark:bg-slate-900/20'>
+            <div className='space-y-2'>
+              <Label htmlFor='research-question'>{t('Question')}</Label>
+              <Textarea
+                id='research-question'
+                className='bg-background min-h-40 resize-y'
+                placeholder={t('Ask about your documents or attached results')}
+                ref={questionRef}
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+              />
+            </div>
+            {analysisContext && (
+              <div className='space-y-2'>
+                <p role='status' className='text-sm'>
+                  {t(
+                    'A calculation result is attached and will be sent to the model provider.'
+                  )}
+                </p>
                 <Button
                   type='button'
                   variant='outline'
-                  aria-label={`${t('Delete document')}: ${item.name}`}
-                  onClick={() => setPendingDelete(item)}
+                  onClick={() => setAnalysisContext('')}
                 >
-                  {t('Delete')}
+                  {t('Remove attachment')}
                 </Button>
               </div>
-            ))}
-            <p className='text-sm'>
-              {t('Selected documents')}:{' '}
-              {formatNumber(selectedDocuments.length, locale)}
-            </p>
-          </div>
-          <div className='space-y-2'>
-            <Label htmlFor='research-question'>{t('Question')}</Label>
-            <Textarea
-              id='research-question'
-              ref={questionRef}
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-            />
-          </div>
-          {analysisContext && (
-            <div className='space-y-2'>
-              <p role='status' className='text-sm'>
-                {t(
-                  'A calculation result is attached and will be sent to the model provider.'
-                )}
+            )}
+            {error && (
+              <p role='alert' className='text-destructive text-sm'>
+                {error}
               </p>
-              <Button
-                type='button'
-                variant='outline'
-                onClick={() => setAnalysisContext('')}
-              >
-                {t('Remove attachment')}
-              </Button>
-            </div>
-          )}
-          {error && (
-            <p role='alert' className='text-destructive text-sm'>
-              {error}
-            </p>
-          )}
-          <Button disabled={pending} onClick={ask}>
-            {pending ? t('Processing...') : t('Ask assistant')}
-          </Button>
+            )}
+            <Button
+              className='h-10 self-start px-5'
+              disabled={pending}
+              onClick={ask}
+            >
+              <Send className='size-4' />
+              {pending ? t('Processing...') : t('Ask assistant')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
       {answer && (
-        <Card>
+        <Card className='rounded-2xl border-0 py-5 shadow-sm'>
           <CardHeader>
-            <CardTitle>{t('Answer')}</CardTitle>
+            <CardTitle className='flex items-center gap-2 text-lg font-semibold'>
+              <Sparkles className='size-5 text-sky-600' />
+              {t('Answer')}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className='whitespace-pre-wrap'>{answer}</p>
           </CardContent>
         </Card>
       )}
-      <QuantBacktest
-        onAnalyze={(context) => {
-          setAnalysisContext(context)
-          setQuestion(
-            t('Explain the attached calculation and its limitations.')
-          )
-          setAnswer('')
-          setError('')
-          questionRef.current?.focus()
-        }}
-      />
-      <MomentumScreen
-        onAnalyze={(context) => {
-          setAnalysisContext(context)
-          setQuestion(
-            t('Explain the attached calculation and its limitations.')
-          )
-          setAnswer('')
-          setError('')
-          questionRef.current?.focus()
-        }}
-      />
+      <div id='research-backtest' className='scroll-mt-4'>
+        <QuantBacktest
+          onAnalyze={(context) => {
+            setAnalysisContext(context)
+            setQuestion(
+              t('Explain the attached calculation and its limitations.')
+            )
+            setAnswer('')
+            setError('')
+            questionRef.current?.focus()
+          }}
+        />
+      </div>
+      <div id='research-screen' className='scroll-mt-4'>
+        <MomentumScreen
+          onAnalyze={(context) => {
+            setAnalysisContext(context)
+            setQuestion(
+              t('Explain the attached calculation and its limitations.')
+            )
+            setAnswer('')
+            setError('')
+            questionRef.current?.focus()
+          }}
+        />
+      </div>
       <ConfirmDialog
         open={!!pendingDelete}
         onOpenChange={(open) => {

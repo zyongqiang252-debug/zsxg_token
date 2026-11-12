@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation } from '@tanstack/react-query'
+import { ChartNoAxesCombined } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -161,16 +162,21 @@ export function QuantBacktest(props: {
   })
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('A-share backtest preview')}</CardTitle>
+    <Card className='gap-0 rounded-2xl border-0 py-0 shadow-sm'>
+      <CardHeader className='border-b px-6 py-5 sm:px-7'>
+        <CardTitle className='flex items-center gap-3 text-lg font-semibold'>
+          <span className='flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'>
+            <ChartNoAxesCombined className='size-5' />
+          </span>
+          {t('A-share backtest preview')}
+        </CardTitle>
         <CardDescription>
           {t(
             'Paste daily data as date, open price in fen, close price in fen; one row per trading day, oldest first.'
           )}
         </CardDescription>
       </CardHeader>
-      <CardContent className='space-y-4'>
+      <CardContent className='space-y-5 p-6 sm:p-7'>
         <p className='text-muted-foreground text-sm'>
           {t(
             'Research approximation only: price limits, suspensions, liquidity, corporate actions and partial fills are not simulated.'
@@ -226,6 +232,7 @@ export function QuantBacktest(props: {
           <Label htmlFor='quant-data'>{t('Daily price data')}</Label>
           <Textarea
             id='quant-data'
+            className='min-h-28 font-mono text-sm'
             value={csv}
             disabled={pending || backtest.isPending}
             onChange={(event) => {
@@ -249,7 +256,10 @@ export function QuantBacktest(props: {
             : t('Run backtest')}
         </Button>
         {result && (
-          <div aria-live='polite' className='space-y-2 text-sm'>
+          <div
+            aria-live='polite'
+            className='bg-muted/40 space-y-3 rounded-xl border p-4 text-sm'
+          >
             <p>
               {t('Final equity (fen)')}:{' '}
               {formatNumber(result.equity.at(-1)?.equity_fen, locale)}
