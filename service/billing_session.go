@@ -30,12 +30,13 @@ import (
 type BillingSession struct {
 	relayInfo        *relaycommon.RelayInfo
 	funding          FundingSource
-	preConsumedQuota int    // 实际预扣额度（信任用户可能为 0）
-	tokenConsumed    int    // 令牌额度实际扣减量
-	extraReserved    int    // 发送前补充预扣的额度（订阅退款时需要单独回滚）
-	trusted          bool   // 是否命中信任额度旁路
-	fundingSettled   bool   // funding.Settle 已成功，资金来源已提交
-	settled          bool   // Settle 全部完成（资金 + 令牌）
+	preConsumedQuota int  // 实际预扣额度（信任用户可能为 0）
+	tokenConsumed    int  // 令牌额度实际扣减量
+	extraReserved    int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
+	trusted          bool // 是否命中信任额度旁路
+	fundingSettled   bool // funding.Settle 已成功，资金来源已提交
+	settled          bool // Settle 全部完成（资金 + 令牌）
+	refundID         string
 	refunded         bool   // Refund 已调用
 	lang             string // 请求声明的语言，为空表示未声明
 	mu               sync.Mutex
@@ -47,7 +48,7 @@ type BillingSession struct {
 func (s *BillingSession) Settle(actualQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.settled {
+	if s.settled || s.refunded {
 		return nil
 	}
 	delta := actualQuota - s.preConsumedQuota
@@ -91,6 +92,42 @@ func (s *BillingSession) Refund(c *gin.Context) {
 		s.mu.Unlock()
 		return
 	}
+	if !common.BatchUpdateEnabled {
+		if s.refundID == "" {
+			s.refundID = common.GetUUID()
+		}
+		refund := model.BillingRefund{ID: s.refundID, UserID: s.relayInfo.UserId}
+		if !s.relayInfo.IsPlayground {
+			refund.TokenID, refund.TokenQuota = s.relayInfo.TokenId, s.tokenConsumed
+		}
+		switch funding := s.funding.(type) {
+		case *WalletFunding:
+			refund.WalletQuota = funding.consumed
+		case *SubscriptionFunding:
+			refund.SubscriptionRequestID = funding.requestId
+			refund.SubscriptionID = funding.subscriptionId
+			refund.SubscriptionExtra = s.extraReserved
+		default:
+			s.mu.Unlock()
+			logger.LogError(c, common.LogText("unsupported billing refund source"))
+			return
+		}
+		if err := model.EnqueueBillingRefund(&refund); err != nil {
+			// Do not mark completion when the journal could not accept the intent.
+			s.mu.Unlock()
+			logger.LogError(c, common.LogText("failed to persist billing refund %s user_id=%d: %s", refund.ID, refund.UserID, err.Error()))
+			return
+		}
+		s.refunded = true
+		s.mu.Unlock()
+		// Finish immediately when possible. A persisted failure is retried by
+		// the background worker, including after process restart.
+		if err := model.ProcessBillingRefund(refund.ID); err != nil {
+			logger.LogError(c, common.LogText("billing refund %s queued for retry: %s", refund.ID, err.Error()))
+		}
+		return
+	}
+	// Legacy in-memory batching cannot provide durable refunds.
 	s.refunded = true
 	s.mu.Unlock()
 

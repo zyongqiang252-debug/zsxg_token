@@ -41,6 +41,27 @@ func TestUserRegistrationLimitCountsUndeletedOrdinaryUsers(t *testing.T) {
 	require.NoError(t, next.Insert(0))
 }
 
+func TestHardDeleteUserRollsBackIfDocumentCleanupFails(t *testing.T) {
+	truncateTables(t)
+	user := User{Username: "delete-doc-failure", AffCode: "delete-doc-failure-aff", AuthVersion: 1}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, DB.Create(&KnowledgeDocument{UserID: user.Id, Name: "private.txt", Text: "private"}).Error)
+	const callback = "test:knowledge_delete_failure"
+	require.NoError(t, DB.Callback().Delete().Before("gorm:delete").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "knowledge_documents" {
+			tx.AddError(errors.New("injected document cleanup failure"))
+		}
+	}))
+	_, err := HardDeleteUserById(user.Id)
+	require.NoError(t, DB.Callback().Delete().Remove(callback))
+	require.Error(t, err)
+	var count int64
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", user.Id).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+	require.NoError(t, DB.Model(&KnowledgeDocument{}).Where("user_id = ?", user.Id).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+}
+
 func TestHardDeleteUserFailsClosedWhenAuthFenceCannotPublish(t *testing.T) {
 	truncateTables(t)
 
@@ -127,6 +148,7 @@ func TestHardDeleteUserPublishesTombstoneAndPurgesAuthenticationData(t *testing.
 		TokenHash: "hard-delete-success-flow", Purpose: AuthFlowPurposeTwoFALogin,
 		UserId: user.Id, ExpiresAt: time.Now().Add(time.Minute),
 	}).Error)
+	require.NoError(t, DB.Create(&KnowledgeDocument{UserID: user.Id, Name: "private.txt", Text: "private"}).Error)
 	require.NoError(t, populateUserCache(user))
 	// Administrative hard deletion commonly targets an already soft-deleted
 	// user; the shared version increment must therefore query unscoped.
@@ -149,6 +171,7 @@ func TestHardDeleteUserPublishesTombstoneAndPurgesAuthenticationData(t *testing.
 		&AuthFlow{},
 		&ExternalIdentityClaim{},
 		&UserAccessToken{},
+		&KnowledgeDocument{},
 	} {
 		require.NoError(t, DB.Unscoped().Model(record).Where("user_id = ?", user.Id).Count(&count).Error)
 		assert.Zero(t, count)

@@ -1,4 +1,5 @@
 """Isolated real-gateway integration test. Set REVIEW_GATEWAY_BINARY to a built binary."""
+from contextlib import closing
 import copy
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -6,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import sqlite3
 import socket
 import subprocess
 import tempfile
@@ -15,6 +17,7 @@ import unittest
 import urllib.parse
 import urllib.request
 
+from backup_sqlite import copy_database
 from configure import Client, configure, validate_config, validate_url
 
 
@@ -58,6 +61,11 @@ class MockUpstream(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != "Bearer local-upstream-secret" or request.get("model") != "mock-upstream":
             self.send_error(400)
             return
+        if request["messages"][0].get("role") == "system":
+            submitted = request["messages"][-1]["content"]
+            if "营业收入持续增长" not in submitted or "irrelevant-document" in submitted:
+                self.send_error(400)
+                return
         if request["messages"][0]["content"] == "fail-upstream":
             self.send_error(503)
             return
@@ -129,6 +137,11 @@ class GatewayTest(unittest.TestCase):
                     client.call("POST", "/api/setup", {"username": "review", "password": password, "confirmPassword": password})
                     login = client.call("POST", "/api/user/login", {"username": "review", "password": password})
                     client.token = login["access_token"]
+                    user_id = client.call("GET", "/api/user/self")["id"]
+                    saved = client.call("POST", "/api/knowledge/documents", {"owner_id": user_id, "name": "review.txt", "text": "收入增长"})
+                    self.assertEqual(client.call("GET", "/api/knowledge/documents")[0]["text"], "收入增长")
+                    client.call("DELETE", f'/api/knowledge/documents/{saved["id"]}')
+                    self.assertFalse(client.call("GET", "/api/knowledge/documents"))
                     client.call("POST", "/api/option/payment_compliance", {"confirmed": True})
                     config = json.loads(Path(__file__).with_name("integration.example.json").read_text(encoding="utf-8"))
                     config["gateway_url"] = base
@@ -177,6 +190,23 @@ class GatewayTest(unittest.TestCase):
                         urllib.request.urlopen(failed_request, timeout=30)
                     self.assertGreaterEqual(failure.exception.code, 500)
                     self.assert_settled_quotas(client, token["id"], after, 500000 - 140)
+                    invalid_agent = urllib.request.Request(base + "/v1/agent/chat/completions", data=json.dumps({
+                        "model": "xinguang-chat", "question": "test", "max_tokens": 999999, "documents": []}).encode(),
+                        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+                    with self.assertRaises(urllib.error.HTTPError) as rejected:
+                        urllib.request.urlopen(invalid_agent, timeout=30)
+                    self.assertEqual(rejected.exception.code, 400)
+                    self.assert_settled_quotas(client, token["id"], after, 500000 - 140)
+                    agent_request = urllib.request.Request(base + "/v1/agent/chat/completions", data=json.dumps({
+                        "model": "xinguang-chat", "question": "营业收入如何", "max_tokens": 32,
+                        "documents": [{"id": "report", "name": "report.txt", "text": "营业收入持续增长"},
+                                      {"id": "other", "name": "other.txt", "text": "irrelevant-document"}]}).encode(),
+                        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+                    with urllib.request.urlopen(agent_request, timeout=30) as response:
+                        agent = json.load(response)
+                    self.assertEqual(agent["choices"][0]["message"]["content"], "芯光智数联调成功")
+                    after = before - 210
+                    self.assert_settled_quotas(client, token["id"], after, 500000 - 210)
                     pricing = client.call("GET", "/api/option/model_pricing?model=xinguang-chat")["entries"][0]
                     client.call("PATCH", "/api/option/model_pricing", {"changes": [{"model_name": "xinguang-chat",
                         "expected_version": pricing["version"], "pricing": {"billing_setting.billing_mode": "tiered_expr",
@@ -195,6 +225,18 @@ class GatewayTest(unittest.TestCase):
                     unsigned = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
                     params["sign"] = hashlib.md5((unsigned + "local-payment-secret").encode()).hexdigest()
                     params["sign_type"] = "MD5"
+                    # Even a correctly signed callback must match the order and merchant.
+                    for changes in ({"money": "0.01"}, {"money": "7.01"}, {"money": "7.001"},
+                                    {"money": ""}, {"pid": "another-merchant"}):
+                        wrong = {k: v for k, v in params.items() if k not in ("sign", "sign_type")}
+                        wrong.update(changes)
+                        text = "&".join(f"{k}={v}" for k, v in sorted(wrong.items()) if v)
+                        wrong["sign"] = hashlib.md5((text + "local-payment-secret").encode()).hexdigest()
+                        wrong["sign_type"] = "MD5"
+                        with urllib.request.urlopen(base + "/api/user/epay/notify?" + urllib.parse.urlencode(wrong)) as response:
+                            self.assertEqual(response.read(), b"fail")
+                        with closing(sqlite3.connect(Path(directory) / "review.db")) as db:
+                            self.assertEqual(db.execute("SELECT status FROM top_ups WHERE trade_no=?", (params["out_trade_no"],)).fetchone()[0], "pending")
                     invalid = dict(params, sign="invalid")
                     with urllib.request.urlopen(base + "/api/user/epay/notify?" + urllib.parse.urlencode(invalid)) as response:
                         self.assertEqual(response.read(), b"fail")
@@ -203,6 +245,37 @@ class GatewayTest(unittest.TestCase):
                         with urllib.request.urlopen(base + "/api/user/epay/notify?" + urllib.parse.urlencode(params)) as response:
                             self.assertEqual(response.read(), b"success")
                     self.assertEqual(client.call("GET", "/api/user/self")["quota"], after + 500000)
+                    # A fresh gateway must recover a persisted intent exactly once.
+                    user_id = client.call("GET", "/api/user/self")["id"]
+                    process.terminate()
+                    process.wait(timeout=20)
+                    with closing(sqlite3.connect(Path(directory) / "review.db")) as db:
+                        db.execute("UPDATE users SET quota=quota-10 WHERE id=?", (user_id,))
+                        db.execute("INSERT INTO billing_refunds (id,user_id,wallet_quota,token_quota,subscription_extra,status,created_at,updated_at,attempts) VALUES (?,?,10,0,0,'pending',?,?,0)",
+                                   ("restart-refund", user_id, int(time.time()), int(time.time())))
+                        db.commit()
+                    backup = copy_database(Path(directory) / "review.db", Path(directory) / "backup.db")
+                    restored = copy_database(backup, Path(directory) / "restored.db")
+                    with closing(sqlite3.connect(restored)) as db:
+                        self.assertEqual(db.execute("SELECT status FROM billing_refunds WHERE id='restart-refund'").fetchone()[0], "pending")
+                    with self.assertRaises(ValueError):
+                        copy_database(backup, restored)
+                    for restart in range(2):
+                        process = subprocess.Popen([os.environ["REVIEW_GATEWAY_BINARY"], "--log-dir", directory], cwd=directory, env=env, stdout=log, stderr=log)
+                        for attempt in range(120):
+                            try:
+                                if client.call("GET", "/api/user/self")["quota"] == after + 500000:
+                                    break
+                            except (OSError, RuntimeError):
+                                pass
+                            time.sleep(.25)
+                        else:
+                            self.fail("Persisted refund did not recover after restart")
+                        with closing(sqlite3.connect(Path(directory) / "review.db")) as db:
+                            self.assertEqual(db.execute("SELECT status FROM billing_refunds WHERE id='restart-refund'").fetchone()[0], "done")
+                        if restart == 0:
+                            process.terminate()
+                            process.wait(timeout=20)
                     if os.environ.get("REVIEW_SERVE") == "1":
                         access_file = Path(__file__).with_name("review-access.local.json")
                         access_file.write_text(json.dumps({"url": base, "username": "review", "password": password,

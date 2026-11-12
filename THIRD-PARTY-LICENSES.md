@@ -6,6 +6,10 @@ It is an engineering compliance artifact and should be kept with Docker images, 
 Scope: direct dependencies from `go.mod` (including the in-repo `relaykit` and `tokenkit` modules), `web/package.json`, and `electron/package.json`.
 Transitive dependencies should be audited before a final external release.
 
+## PDF parser license notice
+
+The bundled `github.com/ledongthuc/pdf` v0.0.0-20261020125853-5e46805f718e is BSD-3-Clause licensed. Its full copyright and license text is distributed at `/licenses/ledongthuc-pdf-LICENSE` in the Docker image.
+
 ## Dependency Inventory
 
 | Area     | Scope       | Ecosystem | Dependency                                              | Version                              | License                 |
@@ -41,6 +45,7 @@ Transitive dependencies should be audited before a final external release.
 | backend  | production  | Go        | `github.com/go-redis/redis/v8`                          | `v8.11.5`                            | BSD-2-Clause            |
 | backend  | production  | Go        | `github.com/go-sql-driver/mysql`                        | `v1.7.0`                             | MPL-2.0                 |
 | backend  | production  | Go        | `github.com/go-webauthn/webauthn`                       | `v0.14.0`                            | BSD-3-Clause            |
+| backend  | production  | Go        | `github.com/ledongthuc/pdf` | `v0.0.0-20261020125853-5e46805f718e` | BSD-3-Clause |
 | backend  | production  | Go        | `github.com/golang-jwt/jwt/v5`                          | `v5.3.0`                             | MIT                     |
 | backend  | production  | Go        | `github.com/google/uuid`                                | `v1.6.0`                             | BSD-3-Clause            |
 | backend  | production  | Go        | `github.com/gorilla/websocket`                          | `v1.5.3`                             | BSD-2-Clause            |

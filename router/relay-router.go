@@ -79,6 +79,13 @@ func SetRelayRouter(router *gin.Engine) {
 	}
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
+		agentRouter := relayV1Router.Group("")
+		agentRouter.Use(middleware.PrepareKnowledgeAssistant(), middleware.Distribute())
+		agentRouter.POST("/agent/chat/completions", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatOpenAI)
+		})
+	}
+	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
 		wsRouter.Use(middleware.Distribute())

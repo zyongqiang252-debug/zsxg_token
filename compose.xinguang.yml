@@ -12,6 +12,7 @@ services:
       - xinguang_logs:/app/logs
     command: ["--log-dir", "/app/logs"]
     environment:
+      BATCH_UPDATE_ENABLED: "false"
       TZ: Asia/Shanghai
       DEFAULT_LANGUAGE: zh-CN
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in deploy/runtime.env}

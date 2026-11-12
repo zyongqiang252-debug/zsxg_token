@@ -68,6 +68,55 @@ jobs:
       - name: Test root, relaykit, and tokenkit modules
         run: make test
 
+      - name: Build isolated integration gateway
+        run: go build -o /tmp/xinguang-review .
+
+      - name: Test model, token billing, and signed payment callbacks
+        env:
+          REVIEW_GATEWAY_BINARY: /tmp/xinguang-review
+        run: python3 -m unittest discover -s deploy -p test_integration.py -v
+
+  billing-databases:
+    name: Payment and refund database matrix
+    if: github.event.action != 'closed' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: local-ci-only
+          MYSQL_DATABASE: billing_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -plocal-ci-only"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: billing_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres -d billing_test"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+    env:
+      GOWORK: 'off'
+      TEST_MYSQL_DSN: 'root:local-ci-only@tcp(127.0.0.1:3306)/billing_test?parseTime=true'
+      TEST_POSTGRES_DSN: 'host=127.0.0.1 port=5432 user=postgres password=local-ci-only dbname=billing_test sslmode=disable'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.sha }}
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Verify migrations, payment amounts, rollback, and recovery
+        run: go test ./model -run TestPaymentAndRefundDatabaseMatrix -count=1 -v -timeout=120s
+
   frontend:
     name: Frontend typecheck and test
     if: github.event.action != 'closed' || github.event.pull_request.merged == true

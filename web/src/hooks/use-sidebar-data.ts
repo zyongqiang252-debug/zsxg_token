@@ -79,6 +79,11 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             icon: Activity,
           },
           {
+            title: t('Document research assistant'),
+            url: '/research',
+            icon: FileText,
+          },
+          {
             title: t('Dashboard'),
             url: '/dashboard/models',
             icon: LayoutDashboard,
