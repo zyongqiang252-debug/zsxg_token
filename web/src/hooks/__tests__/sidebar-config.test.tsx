@@ -52,6 +52,34 @@ import { useSidebarConfig } from '../use-sidebar-config'
 import { useSidebarData } from '../use-sidebar-data'
 import { useSidebarView } from '../use-sidebar-view'
 
+it('research workspace exposes each tool and highlights only the selected section', () => {
+  const { result } = renderHook(() => useSidebarData())
+  const workspace = result.current.navGroups
+    .flatMap((group) => group.items)
+    .find((item) => item.title === 'Research workspace')
+  if (!workspace?.items) {
+    throw new Error('Research workspace navigation is missing')
+  }
+  expect(workspace?.items?.map((item) => item.hash)).toEqual([
+    'research-assistant',
+    'knowledge-organization',
+    'knowledge-search',
+    'research-fx',
+    'research-backtest',
+    'research-screen',
+  ])
+  expect(checkIsActive('/research#research-fx', workspace)).toBe(true)
+  for (const child of workspace.items) {
+    expect(checkIsActive('/research#research-fx', child)).toBe(
+      child.hash === 'research-fx'
+    )
+  }
+  expect(checkIsActive('/wallet#research-fx', workspace.items[3])).toBe(false)
+  expect(
+    checkIsActive('/research/?tab=tools#research-fx', workspace.items[3])
+  ).toBe(true)
+})
+
 beforeEach(() => {
   vi.stubGlobal('localStorage', {
     getItem: () => null,

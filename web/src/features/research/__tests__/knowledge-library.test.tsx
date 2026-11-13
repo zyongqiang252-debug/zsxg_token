@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -25,6 +25,52 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ResearchAssistant } from '../index'
+import { KnowledgeSearch } from '../knowledge-search'
+
+test('replacing a token updates the index rebuild estimate and the actual next request count', async () => {
+  const fetchMock = vi.fn(async (_url, options) => ({
+    ok: true,
+    json: async () => ({
+      data: JSON.parse(options.body).input.map(
+        (_text: string, index: number) => ({ index, embedding: [1, 0] })
+      ),
+    }),
+  }))
+  vi.stubGlobal('fetch', fetchMock)
+  const client = new QueryClient()
+  const props = {
+    documents: [{ id: 7, name: 'notes.txt', text: 'knowledge '.repeat(100) }],
+    allDocuments: [],
+    model: 'chat',
+    disabled: false,
+    onBusyChange: vi.fn(),
+  }
+  const view = render(
+    <QueryClientProvider client={client}>
+      <KnowledgeSearch {...props} token='first-token' />
+    </QueryClientProvider>
+  )
+  const user = userEvent.setup()
+  await user.type(screen.getByLabelText('Knowledge query'), 'question')
+  await user.type(screen.getByLabelText('Embedding model'), 'embed')
+  await user.click(screen.getByRole('button', { name: 'Semantic search' }))
+  await screen.findByRole('button', { name: 'Ask agent using these passages' })
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  fireEvent.change(screen.getByLabelText('Knowledge query'), {
+    target: { value: 'another question' },
+  })
+  view.rerender(
+    <QueryClientProvider client={client}>
+      <KnowledgeSearch {...props} token='replacement-token' />
+    </QueryClientProvider>
+  )
+  expect(
+    screen.getByText('Embedding requests for this search: 2')
+  ).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Semantic search' }))
+  await screen.findByRole('button', { name: 'Ask agent using these passages' })
+  expect(fetchMock).toHaveBeenCalledTimes(4)
+})
 
 beforeEach(() => {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'test', role: 1 })

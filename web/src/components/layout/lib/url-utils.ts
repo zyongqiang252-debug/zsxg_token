@@ -59,6 +59,13 @@ export function checkIsActive(
   item: NavItem,
   mainNav = false
 ): boolean {
+  if ('url' in item && item.url && item.hash) {
+    const [path, hash] = href.split('#')
+    return (
+      normalizeHref(path) === normalizeHref(urlToString(item.url) ?? '') &&
+      hash === item.hash
+    )
+  }
   const hrefWithoutQuery = href.split('?')[0]
 
   if (item.activeUrls?.some((url) => urlToString(url) === hrefWithoutQuery)) {
@@ -74,6 +81,7 @@ export function checkIsActive(
     if (
       items.some((i) => {
         if (!i?.url) return false
+        if (i.hash) return checkIsActive(href, i)
         const subItemUrl = urlToString(i.url)
         if (!subItemUrl) return false
         if (href === subItemUrl) return true
@@ -87,8 +95,9 @@ export function checkIsActive(
         }
         return false
       })
-    )
+    ) {
       return true
+    }
   }
 
   // For regular link items, check the item's URL

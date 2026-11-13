@@ -154,6 +154,23 @@ export function ResearchActions(props: {
     !props.token.trim() ||
     !props.model.trim() ||
     !corpusCount
+  const sharedRequirements: string[] = []
+  if (!props.token.trim()) {
+    sharedRequirements.push(t('Enter an API token above.'))
+  }
+  if (!props.model.trim()) {
+    sharedRequirements.push(t('Enter a chat model above.'))
+  }
+  const corpusRequirements = [...sharedRequirements]
+  if (!props.corpus.length) {
+    corpusRequirements.push(
+      t('Upload source documents to the current knowledge base.')
+    )
+  }
+  const selectedRequirements = [...sharedRequirements]
+  if (!props.selected.length) {
+    selectedRequirements.push(t('Select documents in your knowledge base.'))
+  }
   function start(task: ResearchTask, documents = props.selected): void {
     setError('')
     setProgress({ done: 0, total: researchSources(documents).length + 1 })
@@ -173,7 +190,7 @@ export function ResearchActions(props: {
   return (
     <Card
       id='knowledge-organization'
-      className='scroll-mt-4 rounded-2xl border-0 shadow-sm'
+      className='scroll-mt-24 rounded-2xl border-0 shadow-sm'
     >
       <CardHeader>
         <CardTitle>{t('Knowledge organization agent')}</CardTitle>
@@ -201,6 +218,7 @@ export function ResearchActions(props: {
           <Button
             type='button'
             disabled={corpusBlocked}
+            aria-describedby='corpus-requirements'
             onClick={() => start('organize', props.corpus)}
           >
             {t('Organize knowledge base')}
@@ -209,6 +227,7 @@ export function ResearchActions(props: {
             type='button'
             variant='outline'
             disabled={corpusBlocked || props.corpus.length < 2}
+            aria-describedby='corpus-requirements'
             onClick={() => start('timeline', props.corpus)}
           >
             {t('Trace viewpoint changes')}
@@ -217,10 +236,26 @@ export function ResearchActions(props: {
             type='button'
             variant='outline'
             disabled={corpusBlocked || props.corpus.length < 2}
+            aria-describedby='corpus-requirements'
             onClick={() => start('conflicts', props.corpus)}
           >
             {t('Find conflicting views')}
           </Button>
+        </div>
+        <div
+          id='corpus-requirements'
+          className='text-muted-foreground space-y-1 text-xs'
+        >
+          {corpusRequirements.map((reason) => (
+            <p key={reason}>{reason}</p>
+          ))}
+          {props.corpus.length < 2 && (
+            <p>
+              {t(
+                'Viewpoint changes and conflicts require at least two source documents.'
+              )}
+            </p>
+          )}
         </div>
         {props.corpus.length > 0 && !corpusCount && (
           <p role='alert'>
@@ -247,6 +282,7 @@ export function ResearchActions(props: {
           <Button
             type='button'
             disabled={blocked}
+            aria-describedby='selected-requirements'
             onClick={() => start('summary')}
           >
             {t('Summarize all notes')}
@@ -255,6 +291,7 @@ export function ResearchActions(props: {
             type='button'
             variant='outline'
             disabled={blocked}
+            aria-describedby='selected-requirements'
             onClick={() => start('rules')}
           >
             {t('Extract experience cards')}
@@ -263,6 +300,7 @@ export function ResearchActions(props: {
             type='button'
             variant='outline'
             disabled={blocked || props.selected.length < 2}
+            aria-describedby='selected-requirements'
             onClick={() => start('compare')}
           >
             {t('Compare notes')}
@@ -282,6 +320,17 @@ export function ResearchActions(props: {
             >
               {t('Stop analysis')}
             </Button>
+          )}
+        </div>
+        <div
+          id='selected-requirements'
+          className='text-muted-foreground space-y-1 text-xs'
+        >
+          {selectedRequirements.map((reason) => (
+            <p key={reason}>{reason}</p>
+          ))}
+          {props.selected.length < 2 && (
+            <p>{t('Select at least two documents to compare notes.')}</p>
           )}
         </div>
         {props.selected.length > 0 && !valid && (

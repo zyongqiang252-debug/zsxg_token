@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -29,13 +29,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
 import { Textarea } from '@/components/ui/textarea'
+import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
+import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   serializeReport,
+  reportStorageCharacters,
+  maxStoredReportCharacters,
   type ResearchReport,
   type ResearchSource,
   type SavedDocument,
@@ -54,16 +58,32 @@ export function ReportEditor(props: {
   knowledgeBase?: string
   disabled: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const editorId = useId()
+  const titleId = `${editorId}-title`
+  const bodyId = `${editorId}-body`
   const queryClient = useQueryClient()
   const [preview, setPreview] = useState(false)
   const [source, setSource] = useState<ResearchSource | null>(null)
   const [saved, setSaved] = useState(false)
   const form = useForm<z.infer<typeof editSchema>>({
-    resolver: zodResolver(editSchema),
+    resolver: zodResolver(
+      editSchema.refine(
+        (values) =>
+          reportStorageCharacters({ ...props.report, body: values.body }) <=
+          maxStoredReportCharacters,
+        { path: ['body'], message: 'Stored report is too large' }
+      )
+    ),
     defaultValues: { title: props.title, body: props.report.body },
   })
   const body = form.watch('body')
+  const storedCharacters = reportStorageCharacters({
+    ...props.report,
+    body: body.trim(),
+  })
+  const reportTooLarge = storedCharacters > maxStoredReportCharacters
   const save = useMutation({
     meta: { errorToast: false },
     mutationFn: async (values: z.infer<typeof editSchema>) => {
@@ -99,13 +119,16 @@ export function ReportEditor(props: {
     props.documents.find((item) => item.id === source?.documentId) ?? null
   return (
     <form
+      aria-label={t('Research result editor: {{title}}', {
+        title: props.title,
+      })}
       className='space-y-4'
       onChange={() => setSaved(false)}
       onSubmit={form.handleSubmit((values) => save.mutate(values))}
     >
-      <Label htmlFor='research-result-title'>{t('Result title')}</Label>
+      <Label htmlFor={titleId}>{t('Result title')}</Label>
       <Input
-        id='research-result-title'
+        id={titleId}
         disabled={props.disabled || save.isPending}
         aria-invalid={!!form.formState.errors.title}
         {...form.register('title')}
@@ -124,20 +147,36 @@ export function ReportEditor(props: {
         </Button>
         <CopyButton value={body} />
       </div>
-      <Label htmlFor='research-result-body'>{t('Edit research result')}</Label>
+      <Label htmlFor={bodyId}>{t('Edit research result')}</Label>
       {preview ? (
         <Markdown>{body}</Markdown>
       ) : (
         <Textarea
-          id='research-result-body'
+          id={bodyId}
           className='min-h-64'
           disabled={props.disabled || save.isPending}
-          aria-invalid={!!form.formState.errors.body}
+          aria-invalid={!!form.formState.errors.body || reportTooLarge}
+          aria-describedby={`${editorId}-size`}
           {...form.register('body')}
         />
       )}
-      {form.formState.errors.body && (
-        <p role='alert'>{t('Enter a result of 1–90,000 characters')}</p>
+      {form.formState.errors.body &&
+        form.formState.errors.body.message !== 'Stored report is too large' &&
+        !reportTooLarge && (
+          <p role='alert'>{t('Enter a result of 1–90,000 characters')}</p>
+        )}
+      <p id={`${editorId}-size`} className='text-muted-foreground text-sm'>
+        {t(
+          'Stored report size: {{count}} / 100,000 characters, including source links.',
+          { count: formatNumber(storedCharacters, locale) }
+        )}
+      </p>
+      {reportTooLarge && (
+        <p role='alert' className='text-destructive text-sm'>
+          {t(
+            'The report and source links exceed the storage limit. Shorten the result before saving.'
+          )}
+        </p>
       )}
       <p className='text-muted-foreground text-sm'>
         {t(
@@ -150,7 +189,8 @@ export function ReportEditor(props: {
           props.disabled ||
           save.isPending ||
           props.documents.length >= 20 ||
-          saved
+          saved ||
+          reportTooLarge
         }
       >
         {save.isPending ? t('Processing...') : t('Save as new document')}

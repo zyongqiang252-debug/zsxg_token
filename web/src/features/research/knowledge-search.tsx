@@ -67,14 +67,14 @@ export function KnowledgeSearch(props: {
   const [error, setError] = useState('')
   const [source, setSource] = useState<SemanticPassage | null>(null)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
-  const indexRef = useRef<SemanticIndex | null>(null)
+  const [index, setIndex] = useState<SemanticIndex | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const corpusKey = useMemo(
     () => JSON.stringify(props.documents.map((doc) => [doc.id, doc.text])),
     [props.documents]
   )
   useEffect(() => {
-    indexRef.current = null
+    setIndex(null)
     setResult(null)
     setReport(null)
     setSource(null)
@@ -84,7 +84,8 @@ export function KnowledgeSearch(props: {
     }
   }, [corpusKey, embeddingModel, ownerId])
   useEffect(() => {
-    indexRef.current = null
+    setIndex(null)
+    abortRef.current?.abort()
   }, [props.token])
   const chunkCount = useMemo(() => {
     try {
@@ -159,17 +160,17 @@ export function KnowledgeSearch(props: {
         model: embeddingModel,
         token: props.token,
         signal: controller.signal,
-        index: indexRef.current,
+        index,
         onProgress: (done, total) => {
           if (!controller.signal.aborted) setProgress({ done, total })
         },
       })
       controller.signal.throwIfAborted()
-      indexRef.current = data.index
-      return { mode, ownerId, passages: data.passages }
+      return { mode, ownerId, passages: data.passages, index: data.index }
     },
     onSuccess: (data) => {
       if (useAuthStore.getState().auth.user?.id !== data.ownerId) return
+      if (data.mode === 'semantic' && 'index' in data) setIndex(data.index)
       if (data.mode === 'answer' && data.report) {
         setReport(data.report)
         setRevision((value) => value + 1)
@@ -213,7 +214,7 @@ export function KnowledgeSearch(props: {
   return (
     <Card
       id='knowledge-search'
-      className='scroll-mt-4 rounded-2xl border-0 shadow-sm'
+      className='scroll-mt-24 rounded-2xl border-0 shadow-sm'
     >
       <CardHeader>
         <CardTitle>{t('Search your knowledge base')}</CardTitle>
@@ -253,7 +254,11 @@ export function KnowledgeSearch(props: {
           <p className='text-sm'>
             {t('Embedding requests for this search: {{count}}', {
               count: formatNumber(
-                indexRef.current ? 1 : Math.ceil(chunkCount / 16) + 1,
+                index &&
+                  index.key === corpusKey &&
+                  index.model === embeddingModel.trim()
+                  ? 1
+                  : Math.ceil(chunkCount / 16) + 1,
                 locale
               ),
             })}
@@ -270,6 +275,7 @@ export function KnowledgeSearch(props: {
           <Button
             type='button'
             disabled={blocked || !embeddingModel.trim() || !props.token.trim()}
+            aria-describedby='knowledge-search-requirements'
             onClick={() => run('semantic')}
           >
             {t('Semantic search')}
@@ -278,6 +284,7 @@ export function KnowledgeSearch(props: {
             type='button'
             variant='outline'
             disabled={blocked}
+            aria-describedby='knowledge-search-requirements'
             onClick={() => run('keyword')}
           >
             {t('Keyword search')}
@@ -285,9 +292,9 @@ export function KnowledgeSearch(props: {
           <Button
             type='button'
             variant='outline'
-            disabled={props.disabled || job.isPending || !indexRef.current}
+            disabled={props.disabled || job.isPending || !index}
             onClick={() => {
-              indexRef.current = null
+              setIndex(null)
               setResult(null)
               setReport(null)
             }}
@@ -310,6 +317,27 @@ export function KnowledgeSearch(props: {
               {t('Stop analysis')}
             </Button>
           )}
+        </div>
+        <div
+          id='knowledge-search-requirements'
+          className='text-muted-foreground space-y-1 text-xs'
+        >
+          {!props.documents.length && (
+            <p>{t('Upload source documents to the current knowledge base.')}</p>
+          )}
+          {!query.trim() && <p>{t('Enter a knowledge query.')}</p>}
+          {!props.token.trim() && <p>{t('Enter an API token above.')}</p>}
+          {!embeddingModel.trim() && (
+            <p>{t('Enter an embedding model to use semantic search.')}</p>
+          )}
+          {!!result?.length && !props.model.trim() && (
+            <p>{t('Enter a chat model above.')}</p>
+          )}
+          <p>
+            {t(
+              'Keyword search does not require an API token or embedding model.'
+            )}
+          </p>
         </div>
         {job.isPending && (
           <p role='status'>

@@ -60,6 +60,11 @@ const reportSchema = z.object({
 export type ResearchReport = z.infer<typeof reportSchema>
 const reportPrefix = '<!-- research-report:v1 -->\n'
 export const maxResearchCharacters = 120000
+export const maxStoredReportCharacters = 100000
+
+export function reportStorageCharacters(report: ResearchReport): number {
+  return [...(reportPrefix + JSON.stringify(report))].length
+}
 
 export function readReport(text: string): ResearchReport | null {
   if (!text.startsWith(reportPrefix)) return null
@@ -72,7 +77,9 @@ export function readReport(text: string): ResearchReport | null {
 
 export function serializeReport(report: ResearchReport): string {
   const text = reportPrefix + JSON.stringify(reportSchema.parse(report))
-  if ([...text].length > 100000) throw new Error('Report too large')
+  if ([...text].length > maxStoredReportCharacters) {
+    throw new Error('Report too large')
+  }
   return text
 }
 

@@ -70,7 +70,15 @@ export function CommandMenu() {
                         key={`${navItem.title}-${navItem.url}`}
                         value={navItem.title}
                         onSelect={() => {
-                          runCommand(() => navigate({ to: navItem.url }))
+                          runCommand(() =>
+                            navigate({
+                              to: navItem.url,
+                              hash: navItem.hash,
+                              hashScrollIntoView: navItem.hash
+                                ? { block: 'start' }
+                                : undefined,
+                            })
+                          )
                         }}
                       >
                         <div className='flex size-4 items-center justify-center'>
@@ -83,10 +91,18 @@ export function CommandMenu() {
 
                   return navItem.items?.map((subItem) => (
                     <CommandItem
-                      key={`${navItem.title}-${subItem.url}`}
-                      value={`${navItem.title}-${subItem.url}`}
+                      key={`${navItem.title}-${subItem.url}-${subItem.hash ?? subItem.title}`}
+                      value={`${navItem.title}-${subItem.title}-${subItem.url}-${subItem.hash ?? ''}`}
                       onSelect={() => {
-                        runCommand(() => navigate({ to: subItem.url }))
+                        runCommand(() =>
+                          navigate({
+                            to: subItem.url,
+                            hash: subItem.hash,
+                            hashScrollIntoView: subItem.hash
+                              ? { block: 'start' }
+                              : undefined,
+                          })
+                        )
                       }}
                     >
                       <div className='flex size-4 items-center justify-center'>

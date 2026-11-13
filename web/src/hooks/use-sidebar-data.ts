@@ -79,9 +79,42 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             icon: Activity,
           },
           {
-            title: t('Document research assistant'),
-            url: '/research',
+            title: t('Research workspace'),
             icon: FileText,
+            activeUrls: ['/research', '/research/'],
+            configUrls: ['/research'],
+            items: [
+              {
+                title: t('Personal knowledge base'),
+                url: '/research',
+                hash: 'research-assistant',
+              },
+              {
+                title: t('Knowledge organization agent'),
+                url: '/research',
+                hash: 'knowledge-organization',
+              },
+              {
+                title: t('Search your knowledge base'),
+                url: '/research',
+                hash: 'knowledge-search',
+              },
+              {
+                title: t('FX research tools'),
+                url: '/research',
+                hash: 'research-fx',
+              },
+              {
+                title: t('A-share backtest preview'),
+                url: '/research',
+                hash: 'research-backtest',
+              },
+              {
+                title: t('Local momentum screening'),
+                url: '/research',
+                hash: 'research-screen',
+              },
+            ],
           },
           {
             title: t('Dashboard'),

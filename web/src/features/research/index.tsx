@@ -59,6 +59,17 @@ type ExtractResponse = {
   data?: { name: string; text: string }
 }
 
+type AssistantInput = {
+  ownerId: number
+  model: string
+  question: string
+  context: string
+  documents: { id: string; name: string; text: string }[]
+  previousAnswer?: string
+  originalQuestion?: string
+  originalContext?: string
+}
+
 export function ResearchAssistant() {
   const { t } = useTranslation()
   const [token, setToken] = useState('')
@@ -76,12 +87,18 @@ export function ResearchAssistant() {
   const queryKey = ['knowledge-documents', userId]
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [pendingDelete, setPendingDelete] = useState<SavedDocument | null>(null)
+  const [continuation, setContinuation] = useState<AssistantInput | null>(null)
+  const [answerIncomplete, setAnswerIncomplete] = useState(false)
+  useEffect(() => {
+    setContinuation(null)
+  }, [token, model, question, analysisContext, selectedIds, scope, userId])
   useEffect(() => {
     setSelectedIds([])
     setScope('*')
     setAnalysisContext('')
     setToken('')
     setAnswer('')
+    setAnswerIncomplete(false)
     setViewedDocument(null)
   }, [userId])
   const documents = useQuery({
@@ -215,12 +232,13 @@ export function ResearchAssistant() {
   })
   const assistant = useMutation({
     meta: { errorToast: false },
-    mutationFn: async (_ownerId: number) => {
+    mutationFn: async (input: AssistantInput) => {
       if (
         !token.trim() ||
-        !model.trim() ||
-        !question.trim() ||
-        (selectedDocuments.length === 0 && !analysisContext)
+        !input.model.trim() ||
+        !input.question.trim() ||
+        (input.documents.length === 0 && !input.context) ||
+        new TextEncoder().encode(input.context).length > 20000
       ) {
         throw new Error('Missing input')
       }
@@ -231,36 +249,69 @@ export function ResearchAssistant() {
           Authorization: `Bearer ${token.trim()}`,
         },
         body: JSON.stringify({
-          model: model.trim(),
-          question,
-          context: analysisContext,
+          model: input.model.trim(),
+          question: input.question,
+          context: input.context,
           max_tokens: 512,
-          reasoning_effort: model.trim().toLowerCase().startsWith('deepseek-')
+          reasoning_effort: input.model
+            .trim()
+            .toLowerCase()
+            .startsWith('deepseek-')
             ? 'none'
             : undefined,
-          documents: selectedDocuments.map((item) => ({
-            id: String(item.id),
-            name: item.name,
-            text: item.text,
-          })),
+          documents: input.documents,
         }),
       })
       if (!response.ok) throw new Error('Assistant request failed')
-      const result: { choices?: { message?: { content?: string } }[] } =
-        await response.json()
-      const content = result.choices?.[0]?.message?.content
+      const result: {
+        choices?: { finish_reason?: string; message?: { content?: string } }[]
+      } = await response.json()
+      const choice = result.choices?.[0]
+      const content = choice?.message?.content
       if (!content) throw new Error('Missing answer')
-      return content
+      if (
+        choice?.finish_reason &&
+        !['stop', 'length'].includes(choice.finish_reason)
+      ) {
+        throw new Error('Assistant response incomplete')
+      }
+      return { content, incomplete: choice?.finish_reason === 'length' }
     },
-    onMutate: () => {
+    onMutate: (input) => {
       setError('')
-      setAnswer('')
+      if (!input.previousAnswer) {
+        setAnswer('')
+        setContinuation(null)
+        setAnswerIncomplete(false)
+      }
     },
-    onSuccess: (content, ownerId) => {
-      if (useAuthStore.getState().auth.user?.id === ownerId) setAnswer(content)
+    onSuccess: (result, input) => {
+      if (useAuthStore.getState().auth.user?.id !== input.ownerId) return
+      setAnswer(
+        input.previousAnswer
+          ? `${input.previousAnswer}\n\n${result.content}`
+          : result.content
+      )
+      setAnswerIncomplete(result.incomplete)
+      const sameQuestion =
+        (input.originalQuestion ?? input.question) === question &&
+        (input.originalContext ?? input.context) === analysisContext &&
+        input.model === model
+      setContinuation(
+        result.incomplete && sameQuestion
+          ? {
+              ...input,
+              question: input.originalQuestion ?? input.question,
+              context: input.originalContext ?? input.context,
+              previousAnswer: undefined,
+              originalQuestion: undefined,
+              originalContext: undefined,
+            }
+          : null
+      )
     },
-    onError: (_error, ownerId) => {
-      if (useAuthStore.getState().auth.user?.id === ownerId) {
+    onError: (_error, input) => {
+      if (useAuthStore.getState().auth.user?.id === input.ownerId) {
         setError(t('Unable to complete the request'))
       }
     },
@@ -281,8 +332,36 @@ export function ResearchAssistant() {
       setError(t('Enter a model, API token, question and at least one source'))
       return
     }
-    assistant.mutate(userId)
+    assistant.mutate({
+      ownerId: userId,
+      model,
+      question,
+      context: analysisContext,
+      documents: selectedDocuments.map((item) => ({
+        id: String(item.id),
+        name: item.name,
+        text: item.text,
+      })),
+    })
   }
+  const continuationContext = continuation
+    ? JSON.stringify({
+        original_question: continuation.question,
+        original_context: continuation.context,
+        previous_answer: answer,
+      })
+    : ''
+  const continuationTooLarge =
+    new TextEncoder().encode(continuationContext).length > 20000
+  const questionRequirements = []
+  if (!token.trim()) questionRequirements.push(t('Enter an API token above.'))
+  if (!model.trim()) questionRequirements.push(t('Enter a chat model above.'))
+  if (!selectedDocuments.length && !analysisContext) {
+    questionRequirements.push(
+      t('Select a document or attach a calculation result.')
+    )
+  }
+  if (!question.trim()) questionRequirements.push(t('Enter a question.'))
 
   return (
     <div className='mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-10 lg:py-10'>
@@ -302,54 +381,54 @@ export function ResearchAssistant() {
             {t('Research workspace description')}
           </p>
         </div>
-        <nav
-          aria-label={t('Research tools')}
-          className='relative mt-6 flex flex-wrap gap-2'
-        >
-          <a
-            href='#research-assistant'
-            className='inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3.5 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-400 dark:border-sky-800 dark:bg-slate-900 dark:text-sky-100'
-          >
-            <BookOpenText className='size-4' />
-            {t('Personal knowledge base')}
-          </a>
-          <a
-            href='#knowledge-organization'
-            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
-          >
-            {t('Knowledge organization agent')}
-          </a>
-          <a
-            href='#knowledge-search'
-            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
-          >
-            {t('Search your knowledge base')}
-          </a>
-          <a
-            href='#research-backtest'
-            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
-          >
-            <ChartNoAxesCombined className='size-4' />
-            {t('A-share backtest preview')}
-          </a>
-          <a
-            href='#research-fx'
-            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
-          >
-            {t('FX research tools')}
-          </a>
-          <a
-            href='#research-screen'
-            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
-          >
-            <ArrowDownRight className='size-4' />
-            {t('Local momentum screening')}
-          </a>
-        </nav>
       </header>
+      <nav
+        aria-label={t('Research tools')}
+        className='bg-background/95 sticky top-0 z-20 flex gap-2 overflow-x-auto rounded-xl border px-3 py-3 backdrop-blur [&>a]:shrink-0 [&>a]:whitespace-nowrap'
+      >
+        <a
+          href='#research-assistant'
+          className='inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3.5 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-400 dark:border-sky-800 dark:bg-slate-900 dark:text-sky-100'
+        >
+          <BookOpenText className='size-4' />
+          {t('Personal knowledge base')}
+        </a>
+        <a
+          href='#knowledge-organization'
+          className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+        >
+          {t('Knowledge organization agent')}
+        </a>
+        <a
+          href='#knowledge-search'
+          className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+        >
+          {t('Search your knowledge base')}
+        </a>
+        <a
+          href='#research-backtest'
+          className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+        >
+          <ChartNoAxesCombined className='size-4' />
+          {t('A-share backtest preview')}
+        </a>
+        <a
+          href='#research-fx'
+          className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+        >
+          {t('FX research tools')}
+        </a>
+        <a
+          href='#research-screen'
+          className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+        >
+          <ArrowDownRight className='size-4' />
+          {t('Local momentum screening')}
+        </a>
+      </nav>
       <Card
         id='research-assistant'
-        className='scroll-mt-4 gap-0 rounded-2xl border-0 py-0 shadow-sm'
+        className='scroll-mt-24 gap-0 rounded-2xl border-0 py-0 shadow-sm'
       >
         <CardHeader className='border-b px-6 py-5 sm:px-7'>
           <CardTitle className='flex items-center gap-3 text-lg font-semibold'>
@@ -463,12 +542,27 @@ export function ResearchAssistant() {
             )}
             <Button
               className='h-10 self-start px-5'
-              disabled={pending}
+              disabled={pending || questionRequirements.length > 0}
+              aria-describedby={
+                questionRequirements.length
+                  ? 'research-question-requirements'
+                  : undefined
+              }
               onClick={ask}
             >
               <Send className='size-4' />
               {pending ? t('Processing...') : t('Ask assistant')}
             </Button>
+            {!!questionRequirements.length && (
+              <ul
+                id='research-question-requirements'
+                className='text-muted-foreground list-inside list-disc space-y-1 text-xs'
+              >
+                {questionRequirements.map((requirement) => (
+                  <li key={requirement}>{requirement}</li>
+                ))}
+              </ul>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -512,6 +606,49 @@ export function ResearchAssistant() {
           </CardHeader>
           <CardContent>
             <p className='whitespace-pre-wrap'>{answer}</p>
+            {answerIncomplete && (
+              <p
+                role='alert'
+                className='mt-4 text-amber-700 dark:text-amber-300'
+              >
+                {t('This answer reached the output limit and is incomplete.')}
+              </p>
+            )}
+            {continuation && (
+              <div className='mt-4 space-y-2'>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'Continuing sends the original sources and previous answer and incurs another model charge.'
+                  )}
+                </p>
+                <Button
+                  type='button'
+                  variant='outline'
+                  disabled={pending || continuationTooLarge}
+                  onClick={() =>
+                    assistant.mutate({
+                      ...continuation,
+                      question: `${[...continuation.question].slice(0, 700).join('')}\n${t('Continue the previous answer without repeating it. Keep its language and citations.')}`,
+                      context: continuationContext,
+                      previousAnswer: answer,
+                      originalQuestion: continuation.question,
+                      originalContext: continuation.context,
+                    })
+                  }
+                >
+                  {assistant.isPending
+                    ? t('Processing...')
+                    : t('Continue answer')}
+                </Button>
+                {continuationTooLarge && (
+                  <p role='alert'>
+                    {t(
+                      'The previous answer is too long to continue. Ask a narrower question.'
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -530,7 +667,7 @@ export function ResearchAssistant() {
           questionRef.current?.focus()
         }}
       />
-      <div id='research-backtest' className='scroll-mt-4'>
+      <div id='research-backtest' className='scroll-mt-24'>
         <QuantBacktest
           onAnalyze={(context) => {
             setAnalysisContext(context)
@@ -543,7 +680,7 @@ export function ResearchAssistant() {
           }}
         />
       </div>
-      <div id='research-screen' className='scroll-mt-4'>
+      <div id='research-screen' className='scroll-mt-24'>
         <MomentumScreen
           onAnalyze={(context) => {
             setAnalysisContext(context)

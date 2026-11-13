@@ -50,10 +50,136 @@ test('requires the inputs before sending a billed request', async () => {
       <ResearchAssistant />
     </QueryClientProvider>
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Ask assistant' }))
-  expect(screen.getByRole('alert')).toHaveTextContent(
-    'Enter a model, API token, question and at least one source'
+  expect(screen.getByRole('button', { name: 'Ask assistant' })).toBeDisabled()
+  expect(
+    screen.getAllByText('Enter an API token above.').length
+  ).toBeGreaterThan(0)
+  expect(
+    screen.getByText('Select a document or attach a calculation result.')
+  ).toBeVisible()
+  expect(screen.getByText('Enter a question.')).toBeVisible()
+  expect(
+    screen.getByRole('button', { name: 'Organize knowledge base' })
+  ).toHaveAccessibleDescription(/Upload source documents/)
+  expect(
+    screen.getByRole('button', { name: 'Compare notes' })
+  ).toHaveAccessibleDescription(/at least two documents/)
+  expect(
+    screen.getByRole('button', { name: 'Semantic search' })
+  ).toHaveAccessibleDescription(/Enter an embedding model/)
+})
+
+test('the workspace toolbar links each tool to its visible page section', () => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ResearchAssistant />
+    </QueryClientProvider>
   )
+  const links = within(
+    screen.getByRole('navigation', { name: 'Research tools' })
+  ).getAllByRole('link')
+  expect(links).toHaveLength(6)
+  for (const link of links) {
+    const anchor = link.getAttribute('href')
+    if (!anchor) throw new Error('Research tool link has no target')
+    expect(document.querySelector(anchor)).toBeInTheDocument()
+  }
+})
+
+test('a truncated answer waits for an explicit continuation and appends the next response with the original evidence', async () => {
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: [{ id: 7, name: 'notes.txt', text: 'source evidence' }],
+    },
+  })
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          { finish_reason: 'length', message: { content: 'First part' } },
+        ],
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          { finish_reason: 'stop', message: { content: 'Final part' } },
+        ],
+      }),
+    })
+  vi.stubGlobal('fetch', fetchMock)
+  const user = userEvent.setup()
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ResearchAssistant />
+    </QueryClientProvider>
+  )
+  await user.click(await screen.findByRole('button', { name: 'notes.txt' }))
+  await user.type(screen.getByLabelText('API token'), 'test-key')
+  await user.type(
+    screen.getByLabelText('Question'),
+    'Explain the source evidence'
+  )
+  await user.click(screen.getByRole('button', { name: 'Ask assistant' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('incomplete')
+  expect(screen.getByText('First part')).toBeVisible()
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  await user.click(screen.getByRole('button', { name: 'Continue answer' }))
+  expect(await screen.findByText(/First part\s+Final part/)).toBeVisible()
+  expect(
+    screen.queryByRole('button', { name: 'Continue answer' })
+  ).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  const first = JSON.parse(fetchMock.mock.calls[0][1].body)
+  const next = JSON.parse(fetchMock.mock.calls[1][1].body)
+  expect(next.documents).toEqual(first.documents)
+  expect(next.max_tokens).toBe(512)
+  expect(next.question).toContain('Explain the source evidence')
+  expect(JSON.parse(next.context)).toMatchObject({
+    original_question: 'Explain the source evidence',
+    previous_answer: 'First part',
+  })
+})
+
+test('changing the question disables stale continuation while keeping the incomplete-answer warning', async () => {
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: [{ id: 7, name: 'notes.txt', text: 'evidence' }],
+    },
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          { finish_reason: 'length', message: { content: 'Partial answer' } },
+        ],
+      }),
+    })
+  )
+  const user = userEvent.setup()
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ResearchAssistant />
+    </QueryClientProvider>
+  )
+  await user.click(await screen.findByRole('button', { name: 'notes.txt' }))
+  await user.type(screen.getByLabelText('API token'), 'test-key')
+  await user.type(screen.getByLabelText('Question'), 'question')
+  await user.click(screen.getByRole('button', { name: 'Ask assistant' }))
+  await screen.findByRole('button', { name: 'Continue answer' })
+  await user.type(screen.getByLabelText('Question'), ' changed')
+  expect(
+    screen.queryByRole('button', { name: 'Continue answer' })
+  ).not.toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('incomplete')
+  expect(screen.getByText('Partial answer')).toBeVisible()
 })
 
 test('imports a document and sends it with an ephemeral token', async () => {
@@ -158,12 +284,10 @@ test('attaches a backtest result and asks without a document', async () => {
       },
     },
   })
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: 'Analysis' } }] }),
-    })
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ choices: [{ message: { content: 'Analysis' } }] }),
+  })
   vi.stubGlobal('fetch', fetchMock)
   const user = userEvent.setup()
   render(

@@ -90,7 +90,7 @@ export function FXReference(props: {
   return (
     <Card
       id='research-fx'
-      className='scroll-mt-4 gap-0 rounded-2xl border-0 py-0 shadow-sm'
+      className='scroll-mt-24 gap-0 rounded-2xl border-0 py-0 shadow-sm'
     >
       <CardHeader className='border-b px-6 py-5 sm:px-7'>
         <CardTitle className='flex items-center gap-3 text-lg font-semibold'>

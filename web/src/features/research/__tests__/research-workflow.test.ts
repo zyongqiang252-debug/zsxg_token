@@ -23,11 +23,25 @@ import {
   researchSources,
   runResearch,
   serializeReport,
+  reportStorageCharacters,
 } from '../research-workflow'
 
 const docs = [
   { id: 7, name: 'notes.txt', text: `开头${'中'.repeat(5998)}尾部证据😀` },
 ]
+
+test('stored report size matches escaped JSON and Unicode source metadata', () => {
+  const report = {
+    kind: 'summary' as const,
+    body: 'Quoted "evidence"\n研究😀',
+    sources: [
+      { id: 'S1', documentId: 7, name: 'notes😀.txt', start: 0, end: 10 },
+    ],
+  }
+  expect(reportStorageCharacters(report)).toBe(
+    [...serializeReport(report)].length
+  )
+})
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()

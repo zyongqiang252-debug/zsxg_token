@@ -130,6 +130,8 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
         render={
           <Link
             to={item.url}
+            hash={item.hash}
+            hashScrollIntoView={item.hash ? { block: 'start' } : undefined}
             preload={isMobile ? false : undefined}
             onClick={() => setOpenMobile(false)}
           />
@@ -192,6 +194,10 @@ function SidebarMenuCollapsible({
                 render={
                   <Link
                     to={subItem.url}
+                    hash={subItem.hash}
+                    hashScrollIntoView={
+                      subItem.hash ? { block: 'start' } : undefined
+                    }
                     preload={isMobile ? false : undefined}
                     onClick={() => setOpenMobile(false)}
                   />
@@ -248,6 +254,10 @@ function SidebarMenuCollapsedDropdown({
                 render={
                   <Link
                     to={sub.url}
+                    hash={sub.hash}
+                    hashScrollIntoView={
+                      sub.hash ? { block: 'start' } : undefined
+                    }
                     className={`${checkIsActive(href, sub) ? 'bg-secondary' : ''}`}
                   />
                 }
