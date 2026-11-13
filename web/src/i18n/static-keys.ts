@@ -913,4 +913,8 @@ export const STATIC_I18N_KEYS = [
   'Document topic',
   'Instrument or subject',
   'Applicable conditions',
+  // FX reference API failures.
+  'Reference rate service is unavailable. Try again later.',
+  'Reference rate service returned invalid data.',
+  'No reference rates in this period. Try a wider date range.',
 ] as const

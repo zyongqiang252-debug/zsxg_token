@@ -358,6 +358,16 @@ class GatewayTest(unittest.TestCase):
                             process.terminate()
                             process.wait(timeout=20)
                     self.assert_knowledge_workflow(client, key, user_id, Path(directory) / "server.log")
+                    fx_input = {"base": "USD", "quote": "CNY", "amount": "1000", "from": "2024-01-01", "to": "2024-01-07"}
+                    with self.assertRaises(RuntimeError):
+                        client.call("POST", "/api/fx/reference", {**fx_input, "amount": "-1"})
+                    with self.assertRaises(RuntimeError):
+                        Client(base, "").call("POST", "/api/fx/reference", fx_input)
+                    if os.environ.get("TEST_FX_LIVE") == "1":
+                        fx = client.call("POST", "/api/fx/reference", fx_input)
+                        self.assertEqual(fx["provider"], "ECB via Frankfurter")
+                        self.assertEqual(fx["rate_date"], "2024-01-05")
+                        self.assertGreater(fx["observation_count"], 0)
                     if os.environ.get("REVIEW_SERVE") == "1":
                         access_file = Path(__file__).with_name("review-access.local.json")
                         access_file.write_text(json.dumps({"url": base, "username": "review", "password": password,

@@ -185,6 +185,16 @@ go test ./model -run 'TestKnowledgeMetadataDatabaseMatrix|TestPaymentAndRefundDa
 
 </details>
 
+### 汇率研究工具
+
+研究工作台的“汇率研究工具”支持 20 种常用货币，查询最多 366 天的历史区间，展示 `1 基础货币 = 汇率 × 计价货币` 的方向、末次公布日期、区间首末涨跌幅、最低/最高值、历史曲线及逐日明细。数据来自 [Frankfurter 的 ECB 专属接口](https://frankfurter.dev/)，为[欧洲央行参考汇率](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html)，不代表实时行情或银行成交价。
+
+金额使用十进制字符串传输并由服务端精确相乘，支持最多 8 位金额小数、最高 1 万亿；涨跌幅保留最多 6 位小数。统计只计入区间内实际公布日，不补齐假日，也不使用接口附带的区间前基准日。仅一个观测值时涨跌幅为 0%；整个区间无数据时提示扩大日期范围。页面分别显示汇率日期与查询时间（UTC），不把历史数据当作实时价格。
+
+点击“附加结果给助手”后，可结合所选个人资料提问；附件包含精确计算摘要、币对、日期、数据源和适用限制。查询参考汇率只需要登录账户，不需要模型令牌；助手解释仍沿用现有模型调用与计费。第三方汇率服务仅接收币对和日期，不接收金额或用户知识库。
+
+汇率测试：`go test ./service -run TestFXReference -count=1`；设置 `TEST_FX_LIVE=1` 可额外验证真实公开接口。界面复用项目的 Field、NativeSelect、EmptyState、ErrorState、ChartContainer 和 StaticDataTable；精确汇率直接展示服务端十进制字符串，避免额度格式化器换算单位或通用数字格式化器截短精度。
+
 <a id="quick-start"></a>
 
 ## 快速开始

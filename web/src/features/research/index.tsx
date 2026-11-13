@@ -44,6 +44,7 @@ import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { FXReference } from './fx-reference'
 import { KnowledgeLibrary } from './knowledge-library'
 import type { KnowledgeMetadata } from './knowledge-metadata'
 import { KnowledgeSearch } from './knowledge-search'
@@ -332,6 +333,12 @@ export function ResearchAssistant() {
             {t('A-share backtest preview')}
           </a>
           <a
+            href='#research-fx'
+            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+          >
+            {t('FX research tools')}
+          </a>
+          <a
             href='#research-screen'
             className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
           >
@@ -508,6 +515,21 @@ export function ResearchAssistant() {
           </CardContent>
         </Card>
       )}
+      <FXReference
+        key={`fx:${userId ?? 'anonymous'}`}
+        disabled={pending}
+        onAnalyze={(context) => {
+          setAnalysisContext(context)
+          setQuestion(
+            t(
+              'Explain the attached FX calculation alongside the selected documents. Distinguish published facts, user views and uncertainty.'
+            )
+          )
+          setAnswer('')
+          setError('')
+          questionRef.current?.focus()
+        }}
+      />
       <div id='research-backtest' className='scroll-mt-4'>
         <QuantBacktest
           onAnalyze={(context) => {

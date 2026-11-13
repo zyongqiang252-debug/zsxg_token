@@ -30,6 +30,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.POST("/quant/backtest", middleware.UserAuth(), controller.RunQuantBacktest)
 		apiRouter.POST("/quant/screen", middleware.UserAuth(), controller.ScreenQuantMomentum)
+		apiRouter.POST("/fx/reference", middleware.UserAuth(), middleware.DisableCache(), controller.QueryFXReference)
 		apiRouter.POST("/knowledge/search", middleware.UserAuth(), middleware.DisableCache(), controller.SearchKnowledge)
 		apiRouter.POST("/knowledge/extract", middleware.UserAuth(), middleware.DisableCache(), controller.ExtractKnowledgeDocument)
 		apiRouter.GET("/knowledge/documents", middleware.UserAuth(), middleware.DisableCache(), controller.ListKnowledgeDocuments)
