@@ -15,17 +15,37 @@ func CreateKnowledgeDocument(c *gin.Context) {
 		Name    string `json:"name"`
 		Text    string `json:"text"`
 		OwnerID int    `json:"owner_id"`
+		model.KnowledgeMetadata
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.OwnerID != c.GetInt("id") || req.OwnerID <= 0 {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
-	doc, err := model.CreateKnowledgeDocument(c.GetInt("id"), req.Name, req.Text)
+	doc, err := model.CreateKnowledgeDocument(c.GetInt("id"), req.Name, req.Text, req.KnowledgeMetadata)
 	if err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	common.ApiSuccess(c, doc)
+}
+
+func UpdateKnowledgeDocumentMetadata(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16_000)
+	id, err := strconv.Atoi(c.Param("id"))
+	var req struct {
+		OwnerID int `json:"owner_id"`
+		model.KnowledgeMetadata
+	}
+	if err != nil || c.ShouldBindJSON(&req) != nil || req.OwnerID <= 0 || req.OwnerID != c.GetInt("id") {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	document, err := model.UpdateKnowledgeMetadata(c.GetInt("id"), id, req.KnowledgeMetadata)
+	if err != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	common.ApiSuccess(c, document)
 }
 
 func ListKnowledgeDocuments(c *gin.Context) {

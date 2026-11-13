@@ -53,3 +53,51 @@ func TestKnowledgeAssistantRejectsUnboundedOutput(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	}
 }
+
+func TestKnowledgeAssistantFullTextTasksCoverUnmatchedTail(t *testing.T) {
+	for _, task := range []string{"notes", "summary", "rules", "compare", "organize", "timeline", "conflicts", "answer"} {
+		t.Run(task, func(t *testing.T) {
+			router := gin.New()
+			router.POST("/agent", PrepareKnowledgeAssistant(), func(c *gin.Context) {
+				var payload struct {
+					MaxTokens int `json:"max_tokens"`
+					Messages  []struct {
+						Content string `json:"content"`
+					} `json:"messages"`
+				}
+				require.NoError(t, common.UnmarshalBodyReusable(c, &payload))
+				require.Len(t, payload.Messages, 2)
+				if task == "answer" {
+					assert.Contains(t, payload.Messages[0].Content, "ONLY")
+				} else {
+					assert.Contains(t, payload.Messages[0].Content, "ALL")
+				}
+				assert.Contains(t, payload.Messages[0].Content, "untrusted data")
+				assert.Contains(t, payload.Messages[1].Content, "unique-final-evidence")
+				assert.Contains(t, payload.Messages[1].Content, "S1")
+				assert.Equal(t, 2048, payload.MaxTokens)
+				c.Status(http.StatusNoContent)
+			})
+			body, err := common.Marshal(map[string]any{"model": "model-a", "question": "整理", "max_tokens": 2048, "task": task, "documents": []map[string]string{{"id": "S1", "name": "notes", "text": strings.Repeat("无关内容", 500) + "unique-final-evidence"}}})
+			require.NoError(t, err)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(string(body))))
+			assert.Equal(t, http.StatusNoContent, rec.Code)
+		})
+	}
+}
+
+func TestKnowledgeAssistantRejectsInvalidFullTextTasks(t *testing.T) {
+	router := gin.New()
+	router.POST("/agent", PrepareKnowledgeAssistant(), func(c *gin.Context) { t.Fatal("invalid input must not reach model") })
+	for _, body := range []string{
+		`{"model":"m","question":"q","max_tokens":2048,"task":"unknown"}`,
+		`{"model":"m","question":"q","max_tokens":2048,"task":"summary","documents":[]}`,
+		`{"model":"m","question":"q","max_tokens":2048,"task":"summary","documents":[{"id":"S1","text":" "}]}`,
+		`{"model":"m","question":"q","max_tokens":2048,"task":"summary","documents":[{"id":"S1","text":"` + strings.Repeat("中", 24001) + `"}]}`,
+	} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body)))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	}
+}

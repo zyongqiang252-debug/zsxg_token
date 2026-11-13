@@ -34,6 +34,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.POST("/knowledge/extract", middleware.UserAuth(), middleware.DisableCache(), controller.ExtractKnowledgeDocument)
 		apiRouter.GET("/knowledge/documents", middleware.UserAuth(), middleware.DisableCache(), controller.ListKnowledgeDocuments)
 		apiRouter.POST("/knowledge/documents", middleware.UserAuth(), middleware.DisableCache(), controller.CreateKnowledgeDocument)
+		apiRouter.PUT("/knowledge/documents/:id/metadata", middleware.UserAuth(), middleware.DisableCache(), controller.UpdateKnowledgeDocumentMetadata)
 		apiRouter.DELETE("/knowledge/documents/:id", middleware.UserAuth(), middleware.DisableCache(), controller.DeleteKnowledgeDocument)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)

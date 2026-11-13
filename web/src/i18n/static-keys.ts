@@ -906,4 +906,11 @@ export const STATIC_I18N_KEYS = [
   'Channel priorities changed. Refresh and try again.',
   'Invalid channel priority move',
   'Channel priority is outside the sortable range',
+  // User-uploaded knowledge metadata labels.
+  'Knowledge base',
+  'Document author',
+  'Document date',
+  'Document topic',
+  'Instrument or subject',
+  'Applicable conditions',
 ] as const

@@ -25,7 +25,7 @@ import {
   Send,
   Sparkles,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -40,29 +40,36 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
-import { formatNumber } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { KnowledgeLibrary } from './knowledge-library'
+import type { KnowledgeMetadata } from './knowledge-metadata'
+import { KnowledgeSearch } from './knowledge-search'
 import { MomentumScreen } from './momentum-screen'
 import { QuantBacktest } from './quant-backtest'
+import { ResearchActions } from './research-actions'
+import { readReport, type SavedDocument } from './research-workflow'
+import { SourceDialog } from './source-dialog'
 
-type SavedDocument = { id: number; name: string; text: string }
 type ExtractResponse = {
   success: boolean
   data?: { name: string; text: string }
 }
 
 export function ResearchAssistant() {
-  const { t, i18n } = useTranslation()
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const { t } = useTranslation()
   const [token, setToken] = useState('')
   const [model, setModel] = useState('deepseek-flash')
   const [question, setQuestion] = useState('')
   const questionRef = useRef<HTMLTextAreaElement>(null)
   const [analysisContext, setAnalysisContext] = useState('')
+  const [researchBusy, setResearchBusy] = useState(false)
+  const [scope, setScope] = useState('*')
+  const [viewedDocument, setViewedDocument] = useState<SavedDocument | null>(
+    null
+  )
   const userId = useAuthStore((state) => state.auth.user?.id)
   const queryClient = useQueryClient()
   const queryKey = ['knowledge-documents', userId]
@@ -70,9 +77,11 @@ export function ResearchAssistant() {
   const [pendingDelete, setPendingDelete] = useState<SavedDocument | null>(null)
   useEffect(() => {
     setSelectedIds([])
+    setScope('*')
     setAnalysisContext('')
     setToken('')
     setAnswer('')
+    setViewedDocument(null)
   }, [userId])
   const documents = useQuery({
     queryKey,
@@ -87,32 +96,85 @@ export function ResearchAssistant() {
       return requireServerSuccess(response.data).data ?? []
     },
   })
-  const selectedDocuments = (documents.data ?? []).filter((item) =>
-    selectedIds.includes(item.id)
+  const selectedDocuments = useMemo(
+    () =>
+      (documents.data ?? []).filter(
+        (item) =>
+          selectedIds.includes(item.id) &&
+          (scope === '*' || (item.knowledge_base ?? '') === scope)
+      ),
+    [documents.data, selectedIds, scope]
   )
+  const knowledgeDocuments = useMemo(
+    () =>
+      (documents.data ?? []).filter(
+        (item) =>
+          (scope === '*' || (item.knowledge_base ?? '') === scope) &&
+          item.document_type !== 'report' &&
+          !readReport(item.text)
+      ),
+    [documents.data, scope]
+  )
+  const searchDocuments = useMemo(() => {
+    const sources = selectedDocuments.filter(
+      (doc) => doc.document_type !== 'report' && !readReport(doc.text)
+    )
+    return sources.length ? sources : knowledgeDocuments
+  }, [selectedDocuments, knowledgeDocuments])
   const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
   const extract = useMutation({
     meta: { errorToast: false },
-    mutationFn: async ({ file, ownerId }: { file: File; ownerId: number }) => {
-      const form = new FormData()
-      form.append('file', file)
-      const response = await api.post<ExtractResponse>(
-        '/api/knowledge/extract',
-        form
-      )
-      const data = requireServerSuccess(response.data)
-      if (!data.data) throw new Error('Missing document')
-      if (useAuthStore.getState().auth.user?.id !== ownerId) {
-        throw new Error('Account changed')
+    mutationFn: async ({
+      files,
+      metadata,
+      ownerId,
+    }: {
+      files: File[]
+      metadata: KnowledgeMetadata
+      ownerId: number
+    }) => {
+      if (files.length + (documents.data?.length ?? 0) > 20) {
+        throw new Error('Document limit reached')
       }
-      const saved = await api.post<{ success: boolean; data?: SavedDocument }>(
-        '/api/knowledge/documents',
-        { ...data.data, owner_id: ownerId }
-      )
-      const savedData = requireServerSuccess(saved.data)
-      if (!savedData.data) throw new Error('Missing saved document')
-      return savedData.data
+      for (const file of files) {
+        if (useAuthStore.getState().auth.user?.id !== ownerId) {
+          throw new Error('Account changed')
+        }
+        const form = new FormData()
+        form.append('file', file)
+        const response = await api.post<ExtractResponse>(
+          '/api/knowledge/extract',
+          form
+        )
+        const data = requireServerSuccess(response.data).data
+        if (!data) throw new Error('Missing document')
+        if (useAuthStore.getState().auth.user?.id !== ownerId) {
+          throw new Error('Account changed')
+        }
+        const savedResponse = await api.post<{
+          success: boolean
+          data?: SavedDocument
+        }>('/api/knowledge/documents', {
+          ...data,
+          ...metadata,
+          owner_id: ownerId,
+        })
+        const saved = requireServerSuccess(savedResponse.data).data
+        if (!saved) throw new Error('Missing saved document')
+        if (useAuthStore.getState().auth.user?.id !== ownerId) {
+          throw new Error('Account changed')
+        }
+        queryClient.setQueryData<SavedDocument[]>(
+          ['knowledge-documents', ownerId],
+          (old) => [
+            saved,
+            ...(old ?? []).filter((item) => item.id !== saved.id),
+          ]
+        )
+        setSelectedIds((old) => [...old, saved.id])
+        setScope(saved.knowledge_base ?? metadata.knowledge_base)
+      }
     },
     onMutate: async (variables) => {
       setError('')
@@ -120,16 +182,12 @@ export function ResearchAssistant() {
         queryKey: ['knowledge-documents', variables.ownerId],
       })
     },
-    onSuccess: (saved, variables) => {
-      if (useAuthStore.getState().auth.user?.id !== variables.ownerId) return
-      queryClient.setQueryData<SavedDocument[]>(
-        ['knowledge-documents', variables.ownerId],
-        (old) => [saved, ...(old ?? []).filter((item) => item.id !== saved.id)]
-      )
-      setSelectedIds((old) => [...old, saved.id])
-      void queryClient.invalidateQueries({
-        queryKey: ['knowledge-documents', variables.ownerId],
-      })
+    onSettled: (_data, _error, variables) => {
+      if (useAuthStore.getState().auth.user?.id === variables.ownerId) {
+        void queryClient.invalidateQueries({
+          queryKey: ['knowledge-documents', variables.ownerId],
+        })
+      }
     },
     onError: () => setError(t('Unable to read or save the document')),
   })
@@ -207,7 +265,10 @@ export function ResearchAssistant() {
     },
   })
   const pending =
-    extract.isPending || assistant.isPending || removeDocument.isPending
+    extract.isPending ||
+    assistant.isPending ||
+    removeDocument.isPending ||
+    researchBusy
   function ask() {
     if (
       !userId ||
@@ -249,7 +310,19 @@ export function ResearchAssistant() {
             className='inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3.5 py-2 text-xs font-medium text-sky-900 transition hover:border-sky-400 dark:border-sky-800 dark:bg-slate-900 dark:text-sky-100'
           >
             <BookOpenText className='size-4' />
-            {t('Document research assistant')}
+            {t('Personal knowledge base')}
+          </a>
+          <a
+            href='#knowledge-organization'
+            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+          >
+            {t('Knowledge organization agent')}
+          </a>
+          <a
+            href='#knowledge-search'
+            className='bg-background/70 hover:bg-background inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-medium transition'
+          >
+            {t('Search your knowledge base')}
           </a>
           <a
             href='#research-backtest'
@@ -276,11 +349,11 @@ export function ResearchAssistant() {
             <span className='flex size-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300'>
               <FileText className='size-5' />
             </span>
-            {t('Document research assistant')}
+            {t('Personal knowledge base')}
           </CardTitle>
           <CardDescription>
             {t(
-              'Upload a text, Markdown, DOCX or text-based PDF file and ask a question. Relevant excerpts are sent to the selected model and billed by token usage.'
+              'Upload your own documents, group them into knowledge bases, and let the agent organize topics, evidence and differences.'
             )}
           </CardDescription>
         </CardHeader>
@@ -312,6 +385,7 @@ export function ResearchAssistant() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 autoComplete='off'
+                disabled={pending}
               />
             </div>
             <div className='space-y-2'>
@@ -319,65 +393,33 @@ export function ResearchAssistant() {
               <Input
                 id='research-model'
                 value={model}
+                disabled={pending}
                 onChange={(e) => setModel(e.target.value)}
               />
             </div>
-            <div className='space-y-2'>
-              <Label htmlFor='research-file'>{t('Document')}</Label>
-              <Input
-                id='research-file'
-                type='file'
-                accept='.txt,.md,.docx,.pdf'
-                disabled={
-                  pending || documents.isLoading || documents.isError || !userId
-                }
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file && userId) extract.mutate({ file, ownerId: userId })
-                }}
-              />
-              {documents.isError && (
-                <p role='alert'>{t('Unable to load documents')}</p>
-              )}
-              {(documents.data ?? []).map((item) => (
-                <div
-                  key={item.id}
-                  className='bg-muted/30 flex items-center gap-2 rounded-xl border p-2'
-                >
-                  <Button
-                    type='button'
-                    className='min-w-0 flex-1 justify-start'
-                    variant={
-                      selectedIds.includes(item.id) ? 'default' : 'outline'
-                    }
-                    aria-pressed={selectedIds.includes(item.id)}
-                    onClick={() =>
-                      setSelectedIds((old) =>
-                        old.includes(item.id)
-                          ? old.filter((id) => id !== item.id)
-                          : [...old, item.id]
-                      )
-                    }
-                  >
-                    <span className='truncate' title={item.name}>
-                      {item.name}
-                    </span>
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='outline'
-                    aria-label={`${t('Delete document')}: ${item.name}`}
-                    onClick={() => setPendingDelete(item)}
-                  >
-                    {t('Delete')}
-                  </Button>
-                </div>
-              ))}
-              <p className='text-sm'>
-                {t('Selected documents')}:{' '}
-                {formatNumber(selectedDocuments.length, locale)}
-              </p>
-            </div>
+            <KnowledgeLibrary
+              key={userId ?? 'anonymous'}
+              documents={documents.data ?? []}
+              ownerId={userId}
+              scope={scope}
+              onScopeChange={setScope}
+              selectedIds={selectedIds}
+              onSelect={(id) =>
+                setSelectedIds((old) =>
+                  old.includes(id)
+                    ? old.filter((item) => item !== id)
+                    : [...old, id]
+                )
+              }
+              pending={pending}
+              loading={documents.isLoading}
+              error={documents.isError}
+              onUpload={(files, metadata) => {
+                if (userId) extract.mutate({ files, metadata, ownerId: userId })
+              }}
+              onView={setViewedDocument}
+              onDelete={setPendingDelete}
+            />
           </div>
           <div className='flex flex-col gap-4 bg-slate-50/50 p-6 sm:p-7 dark:bg-slate-900/20'>
             <div className='space-y-2'>
@@ -423,6 +465,36 @@ export function ResearchAssistant() {
           </div>
         </CardContent>
       </Card>
+      <ResearchActions
+        key={userId ?? 'anonymous'}
+        documents={documents.data ?? []}
+        selected={selectedDocuments}
+        corpus={knowledgeDocuments}
+        scope={scope}
+        token={token}
+        model={model}
+        disabled={
+          extract.isPending ||
+          assistant.isPending ||
+          removeDocument.isPending ||
+          documents.isLoading ||
+          documents.isError
+        }
+        onBusyChange={setResearchBusy}
+      />
+      <KnowledgeSearch
+        key={`search:${userId ?? 'anonymous'}`}
+        documents={searchDocuments}
+        allDocuments={documents.data ?? []}
+        token={token}
+        model={model}
+        disabled={pending}
+        onBusyChange={setResearchBusy}
+      />
+      <SourceDialog
+        document={viewedDocument}
+        onClose={() => setViewedDocument(null)}
+      />
       {answer && (
         <Card className='rounded-2xl border-0 py-5 shadow-sm'>
           <CardHeader>

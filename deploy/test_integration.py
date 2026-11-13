@@ -61,6 +61,18 @@ class MockUpstream(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != "Bearer local-upstream-secret" or request.get("model") != "mock-upstream":
             self.send_error(400)
             return
+        if self.path.endswith("/embeddings"):
+            values = request.get("input", [])
+            data = {"object": "list", "model": "mock-upstream",
+                    "data": [{"object": "embedding", "index": i, "embedding": [1.0, 0.0]} for i, _ in enumerate(values)],
+                    "usage": {"prompt_tokens": 100, "total_tokens": 100}}
+            body = json.dumps(data).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if request["messages"][0].get("role") == "system":
             submitted = request["messages"][-1]["content"]
             if "营业收入持续增长" not in submitted or "irrelevant-document" in submitted:
@@ -83,8 +95,17 @@ class MockUpstream(BaseHTTPRequestHandler):
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
             return
+        content = "芯光智数联调成功"
+        instruction = request["messages"][0]["content"]
+        if instruction.startswith("Read ALL supplied material"):
+            if "尾部验证" not in request["messages"][-1]["content"]:
+                self.send_error(400)
+                return
+            content = "营业收入持续增长；尾部验证 [S1]"
+        elif instruction.startswith("Organize ALL") or instruction.startswith("Answer the question using ONLY"):
+            content = "## 资料主题\n营业收入持续增长；尾部验证 [S1]"
         data = {"id": "chatcmpl-review", "object": "chat.completion", "created": 1,
-            "model": "mock-upstream", "choices": [{"index": 0, "message": {"role": "assistant", "content": "芯光智数联调成功"}, "finish_reason": "stop"}],
+            "model": "mock-upstream", "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}}
         body = json.dumps(data).encode()
         self.send_response(200)
@@ -107,6 +128,66 @@ class GatewayTest(unittest.TestCase):
                 self.fail(f"Settlement did not finish: wallet={wallet}, token remaining={remaining}")
             time.sleep(.05)
 
+    def assert_knowledge_workflow(self, client, key, user_id, log_path):
+        text = "营业收入持续增长" + "长期研究材料。" * 1100 + "尾部验证"
+        boundary = "knowledge-" + secrets.token_hex(8)
+        multipart = ("--" + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="knowledge.txt"'
+                     + "\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + text + "\r\n--" + boundary + "--\r\n").encode()
+        request = urllib.request.Request(client.base + "/api/knowledge/extract", data=multipart,
+            headers={"Authorization": "Bearer " + client.token, "Content-Type": "multipart/form-data; boundary=" + boundary})
+        with client.opener.open(request, timeout=30) as response:
+            extracted = json.load(response)
+        self.assertTrue(extracted["success"])
+        self.assertEqual(extracted["data"]["text"], text)
+        document = client.call("POST", "/api/knowledge/documents", {"owner_id": user_id,
+            **extracted["data"], "knowledge_base": "验证知识库", "author": "测试作者", "document_date": "2026-01-01"})
+        updated = client.call("PUT", f'/api/knowledge/documents/{document["id"]}/metadata', {
+            "owner_id": user_id, "knowledge_base": "验证知识库", "author": "测试作者", "topic": "收入研究",
+            "document_date": "2026-01-02", "text": "must-not-replace-source"})
+        self.assertEqual(updated["text"], text)
+        self.assertEqual(updated["document_date"], "2026-01-02")
+        matches = client.call("POST", "/api/knowledge/search", {"query": "营业收入",
+            "documents": [{"id": str(document["id"]), "name": document["name"], "text": text}], "limit": 5})
+        self.assertTrue(matches)
+        self.assertEqual(matches[0]["document_id"], str(document["id"]))
+        def relay(path, payload):
+            req = urllib.request.Request(client.base + path, data=json.dumps(payload).encode(),
+                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                return json.load(response)
+        vectors = relay("/v1/embeddings", {"model": "xinguang-chat", "input": ["营业收入", "收入增长"]})
+        self.assertEqual(len(vectors["data"]), 2)
+        self.assertEqual(len(vectors["data"][0]["embedding"]), 2)
+        notes = relay("/v1/agent/chat/completions", {"model": "xinguang-chat", "task": "notes",
+            "question": "整理全部资料", "max_tokens": 512, "documents": [{"id": "S1", "name": document["name"], "text": text}]})
+        note = notes["choices"][0]["message"]["content"]
+        self.assertIn("尾部验证", note)
+        organized = relay("/v1/agent/chat/completions", {"model": "xinguang-chat", "task": "organize",
+            "question": "整理知识库", "max_tokens": 512, "documents": [{"id": "notes", "name": "All notes", "text": note}]})
+        result = organized["choices"][0]["message"]["content"]
+        self.assertIn("[S1]", result)
+        answer = relay("/v1/agent/chat/completions", {"model": "xinguang-chat", "task": "answer",
+            "question": "营业收入如何变化", "max_tokens": 512,
+            "documents": [{"id": "S1", "name": document["name"], "text": matches[0]["text"]}]})
+        self.assertIn("[S1]", answer["choices"][0]["message"]["content"])
+        report = {"kind": "organize", "body": result + "\n人工修订：仍需验证。", "sources": [
+            {"id": "S1", "documentId": document["id"], "name": document["name"], "start": 0, "end": len(text)}]}
+        saved_payload = {"owner_id": user_id, "name": "知识库整理验证",
+            "text": "<!-- research-report:v1 -->\n" + json.dumps(report, ensure_ascii=False),
+            "knowledge_base": "验证知识库", "document_type": "report"}
+        request = urllib.request.Request(client.base + "/api/knowledge/documents", data=json.dumps(saved_payload).encode(),
+            headers={"Authorization": "Bearer " + client.token, "Content-Type": "application/json"})
+        with client.opener.open(request, timeout=30) as response:
+            saved_response = json.load(response)
+        if not saved_response.get("success"):
+            failures = [line for line in log_path.read_text(encoding="utf-8").splitlines() if "locked" in line.lower() or "SQLITE_BUSY" in line]
+            self.fail(saved_response.get("message", "Save rejected") + "; " + " | ".join(failures[-3:]))
+        saved = saved_response["data"]
+        reopened = next(item for item in client.call("GET", "/api/knowledge/documents") if item["id"] == saved["id"])
+        self.assertEqual(reopened["document_type"], "report")
+        self.assertEqual(json.loads(reopened["text"].split("\n", 1)[1]), report)
+        self.assertTrue(any(item["id"] == document["id"] and item["text"] == text for item in client.call("GET", "/api/knowledge/documents")))
+
     def test_model_mapping_wallet_token_charge_and_signed_topup_replay(self):
         with tempfile.TemporaryDirectory(prefix="xinguang-review-") as directory:
             upstream = ThreadingHTTPServer(("127.0.0.1", 0), MockUpstream)
@@ -120,7 +201,7 @@ class GatewayTest(unittest.TestCase):
                 "REDIS_CONN_STRING": "", "SESSION_SECRET": secrets.token_hex(32), "SESSION_COOKIE_SECURE": "false",
                 "BATCH_UPDATE_ENABLED": "false", "MEMORY_CACHE_ENABLED": "false", "ERROR_LOG_ENABLED": "false"})
             with open(Path(directory) / "server.log", "w", encoding="utf-8") as log:
-                process = subprocess.Popen([os.environ["REVIEW_GATEWAY_BINARY"], "--log-dir", directory], cwd=directory, env=env, stdout=log, stderr=log)
+                process = subprocess.Popen([os.environ["REVIEW_GATEWAY_BINARY"], "--log-dir", directory], cwd=directory, env=env, stdout=log, stderr=log, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 try:
                     for _ in range(120):
                         if process.poll() is not None:
@@ -261,7 +342,7 @@ class GatewayTest(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         copy_database(backup, restored)
                     for restart in range(2):
-                        process = subprocess.Popen([os.environ["REVIEW_GATEWAY_BINARY"], "--log-dir", directory], cwd=directory, env=env, stdout=log, stderr=log)
+                        process = subprocess.Popen([os.environ["REVIEW_GATEWAY_BINARY"], "--log-dir", directory], cwd=directory, env=env, stdout=log, stderr=log, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                         for attempt in range(120):
                             try:
                                 if client.call("GET", "/api/user/self")["quota"] == after + 500000:
@@ -276,6 +357,7 @@ class GatewayTest(unittest.TestCase):
                         if restart == 0:
                             process.terminate()
                             process.wait(timeout=20)
+                    self.assert_knowledge_workflow(client, key, user_id, Path(directory) / "server.log")
                     if os.environ.get("REVIEW_SERVE") == "1":
                         access_file = Path(__file__).with_name("review-access.local.json")
                         access_file.write_text(json.dumps({"url": base, "username": "review", "password": password,
